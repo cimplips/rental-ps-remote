@@ -13,6 +13,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import java.io.PrintWriter
 import java.net.Socket
 import java.util.concurrent.Executors
@@ -30,6 +32,7 @@ class MainActivity : Activity() {
     private lateinit var messageInput: EditText
     private lateinit var billInput: EditText
 
+    private lateinit var psTypeSpinner: Spinner
     private lateinit var psTypeInput: EditText
     private lateinit var durationInput: EditText
     private lateinit var priceInput: EditText
@@ -280,16 +283,53 @@ class MainActivity : Activity() {
             "Pengaturan Sesi"
         )
 
+        psTypeSpinner =
+            Spinner(this).apply {
+
+                val adapter =
+                    ArrayAdapter(
+                        this@MainActivity,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        arrayOf(
+                            "PS3",
+                            "PS4",
+                            "PS5"
+                        )
+                    )
+
+                this.adapter = adapter
+
+                val savedType =
+                    preferences.getString(
+                        "ps_type",
+                        "PS5"
+                    ) ?: "PS5"
+
+                val index =
+                    when (savedType.uppercase()) {
+                        "PS3" -> 0
+                        "PS4" -> 1
+                        else -> 2
+                    }
+
+                setSelection(index)
+            }
+
+        root.addView(
+            psTypeSpinner,
+            matchParentWrapContent()
+        )
+
         psTypeInput =
             createInput(
-                "Jenis PS, contoh PS5"
+                "Nama jenis PS, contoh PS5"
             )
 
         psTypeInput.setText(
             preferences.getString(
-                "ps_type",
-                "PS5"
-            ) ?: "PS5"
+                "ps3_name",
+                "PS3"
+            ) ?: "PS3"
         )
 
         root.addView(
@@ -299,15 +339,18 @@ class MainActivity : Activity() {
 
         durationInput =
             createInput(
-                "Durasi mulai dalam menit"
+                "Durasi sesi jenis PS ini dalam menit"
             )
+
+        durationInput.inputType =
+            android.text.InputType.TYPE_CLASS_NUMBER
 
         durationInput.inputType =
             android.text.InputType.TYPE_CLASS_NUMBER
 
         durationInput.setText(
             preferences.getInt(
-                "session_duration_minutes",
+                "ps5_duration_minutes",
                 60
             ).toString()
         )
@@ -319,7 +362,7 @@ class MainActivity : Activity() {
 
         priceInput =
             createInput(
-                "Tarif sesi, contoh 10000"
+                "Tarif sesi jenis PS ini, contoh 10000"
             )
 
         priceInput.inputType =
@@ -327,7 +370,7 @@ class MainActivity : Activity() {
 
         priceInput.setText(
             preferences.getLong(
-                "session_price",
+                "ps5_price",
                 10_000L
             ).toString()
         )
@@ -391,6 +434,25 @@ class MainActivity : Activity() {
             saveSessionSettingsButton,
             matchParentButton()
         )
+
+        psTypeSpinner.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+
+                    loadSelectedPsSettings()
+                }
+
+                override fun onNothingSelected(
+                    parent: android.widget.AdapterView<*>?
+                ) {
+                }
+            }
 
         /*
          * SESSION
@@ -1299,14 +1361,86 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun selectedPsKey(): String {
+
+        return when (
+            psTypeSpinner.selectedItem?.toString()?.uppercase()
+        ) {
+            "PS3" -> "ps3"
+            "PS4" -> "ps4"
+            else -> "ps5"
+        }
+    }
+
+    private fun loadSelectedPsSettings() {
+
+        val key =
+            selectedPsKey()
+
+        val defaultName =
+            when (key) {
+                "ps3" -> "PS3"
+                "ps4" -> "PS4"
+                else -> "PS5"
+            }
+
+        val defaultDuration =
+            preferences.getInt(
+                "${key}_duration_minutes",
+                60
+            )
+
+        val defaultPrice =
+            preferences.getLong(
+                "${key}_price",
+                when (key) {
+                    "ps3" -> 8_000L
+                    "ps4" -> 10_000L
+                    else -> 15_000L
+                }
+            )
+
+        psTypeInput.setText(
+            preferences.getString(
+                "${key}_name",
+                defaultName
+            ) ?: defaultName
+        )
+
+        durationInput.setText(
+            defaultDuration.toString()
+        )
+
+        priceInput.setText(
+            defaultPrice.toString()
+        )
+
+        addDurationInput.setText(
+            preferences.getInt(
+                "${key}_add_duration_minutes",
+                30
+            ).toString()
+        )
+
+        addPriceInput.setText(
+            preferences.getLong(
+                "${key}_add_price",
+                5_000L
+            ).toString()
+        )
+    }
+
     private fun saveSessionSettings() {
+
+        val key =
+            selectedPsKey()
 
         val psType =
             psTypeInput.text
                 .toString()
                 .trim()
                 .ifEmpty {
-                    "PS5"
+                    key.uppercase()
                 }
 
         val durationMinutes =
@@ -1347,6 +1481,26 @@ class MainActivity : Activity() {
 
         preferences.edit()
             .putString(
+                "${key}_name",
+                psType
+            )
+            .putInt(
+                "${key}_duration_minutes",
+                durationMinutes.toInt()
+            )
+            .putLong(
+                "${key}_price",
+                price
+            )
+            .putInt(
+                "${key}_add_duration_minutes",
+                addMinutes.toInt()
+            )
+            .putLong(
+                "${key}_add_price",
+                addPrice
+            )
+            .putString(
                 "ps_type",
                 psType
             )
@@ -1369,7 +1523,7 @@ class MainActivity : Activity() {
             .apply()
 
         statusText.text =
-            "● Pengaturan sesi tersimpan"
+            "● Pengaturan ${key.uppercase()} tersimpan"
     }
 
     private fun formatTime(
