@@ -502,15 +502,36 @@ class MainActivity : Activity() {
 
         tvServer =
             TvServer(
-                port = 8787
-            ) { command ->
+                port = 8787,
 
-                handleCommand(command)
-            }
+                onCommand = { command ->
+
+                    handleCommand(command)
+                },
+
+                onStatusRequest = {
+
+                    val currentTime =
+                        System.currentTimeMillis()
+
+                    val endTime =
+                        sessionEndTimeMillis
+
+                    if (
+                        endTime > currentTime
+                    ) {
+
+                        "STATUS|ACTIVE|$endTime"
+
+                    } else {
+
+                        "STATUS|IDLE|0"
+                    }
+                }
+            )
 
         tvServer?.start()
     }
-
     private fun handleCommand(
         command: String
     ) {
