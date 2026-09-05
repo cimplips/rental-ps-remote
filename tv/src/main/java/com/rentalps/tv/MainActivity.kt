@@ -1,146 +1,98 @@
 package com.rentalps.tv
 
-import android.app.Activity
-import android.graphics.Color
-import android.os.Bundle
-import android.os.CountDownTimer
-import android.view.Gravity
-import android.view.View
-import android.view.Window
-import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.TextView
+import android.os.Handler
+import android.os.Looper
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.Executors
 
-class MainActivity : Activity() {
+class TvServer(
+    private val port: Int = 8787,
+    private val onCommand: (String) -> Unit
+) {
 
-    private lateinit var root: FrameLayout
-    private lateinit var timerText: TextView
-    private lateinit var expiredText: TextView
+    private var serverSocket: ServerSocket? = null
 
-    private var countDownTimer: CountDownTimer? = null
+    private val executor = Executors.newCachedThreadPool()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    private val mainHandler = Handler(
+        Looper.getMainLooper()
+    )
 
-        requestWindowFeature(Window.FEATURE_NO_TITLE)
+    @Volatile
+    private var running = false
 
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-        )
+    fun start() {
 
-        hideSystemBars()
+        if (running) return
 
-        createScreen()
-    }
+        running = true
 
-    private fun hideSystemBars() {
-        window.decorView.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-    }
+        executor.execute {
 
-    private fun createScreen() {
+            try {
 
-        root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
+                serverSocket = ServerSocket(port)
 
-        timerText = TextView(this).apply {
-            text = ""
-            textSize = 14f
-            setTextColor(Color.argb(90, 255, 255, 255))
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-        }
+                while (running) {
 
-        val timerParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            setMargins(0, 0, 24, 18)
-        }
+                    val socket = serverSocket?.accept()
 
-        root.addView(timerText, timerParams)
-
-        expiredText = TextView(this).apply {
-            text = "WAKTU HABIS\n\nSilakan ke kasir"
-            textSize = 24f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            visibility = View.VISIBLE
-        }
-
-        val expiredParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
-
-        root.addView(expiredText, expiredParams)
-
-        setContentView(root)
-    }
-
-    private fun startTimer(durationMillis: Long) {
-
-        countDownTimer?.cancel()
-
-        expiredText.visibility = View.GONE
-
-        countDownTimer = object : CountDownTimer(
-            durationMillis,
-            1000
-        ) {
-
-            override fun onTick(millisUntilFinished: Long) {
-
-                val totalSeconds =
-                    millisUntilFinished / 1000
-
-                val hours =
-                    totalSeconds / 3600
-
-                val minutes =
-                    (totalSeconds % 3600) / 60
-
-                val seconds =
-                    totalSeconds % 60
-
-                timerText.text = String.format(
-                    "%02d:%02d:%02d",
-                    hours,
-                    minutes,
-                    seconds
-                )
-
-                timerText.visibility =
-                    if (totalSeconds <= 300) {
-                        View.VISIBLE
-                    } else {
-                        View.GONE
+                    if (socket != null) {
+                        handleClient(socket)
                     }
+                }
+
+            } catch (_: Exception) {
+                // Server dihentikan atau socket gagal.
             }
-
-            override fun onFinish() {
-
-                timerText.visibility = View.GONE
-
-                expiredText.visibility = View.VISIBLE
-
-                root.setBackgroundColor(Color.BLACK)
-            }
-
-        }.start()
+        }
     }
 
-    override fun onDestroy() {
+    private fun handleClient(socket: Socket) {
 
-        countDownTimer?.cancel()
+        executor.execute {
 
-        super.onDestroy()
+            socket.use {
+
+                try {
+
+                    val reader = BufferedReader(
+                        InputStreamReader(
+                            socket.getInputStream()
+                        )
+                    )
+
+                    val command = reader.readLine()
+                        ?.trim()
+                        ?.uppercase()
+
+                    if (!command.isNullOrEmpty()) {
+
+                        mainHandler.post {
+
+                            onCommand(command)
+                        }
+                    }
+
+                } catch (_: Exception) {
+                    // Client terputus.
+                }
+            }
+        }
+    }
+
+    fun stop() {
+
+        running = false
+
+        try {
+            serverSocket?.close()
+        } catch (_: Exception) {
+        }
+
+        serverSocket = null
     }
 }
