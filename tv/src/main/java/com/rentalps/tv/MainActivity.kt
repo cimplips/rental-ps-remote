@@ -42,6 +42,13 @@ class MainActivity : Activity() {
     private val handler =
         Handler(Looper.getMainLooper())
 
+    /*
+     * Waktu berakhir sesi.
+     *
+     * Ini menjadi sumber waktu utama.
+     */
+    private var sessionEndTimeMillis = 0L
+
     private var remainingMillis = 0L
 
     private val hideTimerOverlayRunnable =
@@ -49,7 +56,9 @@ class MainActivity : Activity() {
             hideTimerOverlay()
         }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
         super.onCreate(savedInstanceState)
 
         requestWindowFeature(
@@ -71,6 +80,13 @@ class MainActivity : Activity() {
         hideSystemBars()
         createScreen()
         startTvServer()
+
+        /*
+         * Setelah UI dan server siap,
+         * cek apakah masih ada sesi aktif
+         * yang tersimpan.
+         */
+        restoreSavedSession()
     }
 
     private fun hideSystemBars() {
@@ -121,6 +137,90 @@ class MainActivity : Activity() {
                 billText
             )
             .apply()
+    }
+
+    /*
+     * Simpan waktu berakhir sesi.
+     */
+    private fun saveSessionEndTime(
+        endTimeMillis: Long
+    ) {
+
+        sessionEndTimeMillis =
+            endTimeMillis
+
+        preferences.edit()
+            .putLong(
+                "session_end_time",
+                endTimeMillis
+            )
+            .apply()
+    }
+
+    /*
+     * Hapus sesi tersimpan.
+     */
+    private fun clearSavedSession() {
+
+        sessionEndTimeMillis = 0L
+
+        preferences.edit()
+            .remove(
+                "session_end_time"
+            )
+            .apply()
+    }
+
+    /*
+     * Ambil sesi yang tersimpan setelah
+     * aplikasi TV dibuka kembali.
+     */
+    private fun restoreSavedSession() {
+
+        val savedEndTime =
+            preferences.getLong(
+                "session_end_time",
+                0L
+            )
+
+        if (
+            savedEndTime <= 0L
+        ) {
+            return
+        }
+
+        val currentTime =
+            System.currentTimeMillis()
+
+        val remaining =
+            savedEndTime -
+                currentTime
+
+        if (remaining > 0L) {
+
+            sessionEndTimeMillis =
+                savedEndTime
+
+            startTimer(
+                remaining,
+                false
+            )
+
+        } else {
+
+            clearSavedSession()
+
+            expiredText.visibility =
+                View.VISIBLE
+
+            root.setBackgroundColor(
+                Color.BLACK
+            )
+
+            updateExpiredText()
+
+            showBlankOverlay()
+        }
     }
 
     private fun createScreen() {
@@ -505,7 +605,8 @@ class MainActivity : Activity() {
                     removeBlankOverlay()
 
                     startTimer(
-                        seconds * 1000L
+                        seconds * 1000L,
+                        true
                     )
                 }
             }
@@ -543,8 +644,13 @@ class MainActivity : Activity() {
         }
     }
 
+    /*
+     * Memulai countdown berdasarkan
+     * waktu absolut sesi.
+     */
     private fun startTimer(
-        durationMillis: Long
+        durationMillis: Long,
+        saveSession: Boolean
     ) {
 
         countDownTimer?.cancel()
@@ -553,8 +659,21 @@ class MainActivity : Activity() {
             hideTimerOverlayRunnable
         )
 
+        val safeDuration =
+            durationMillis.coerceAtLeast(
+                1000L
+            )
+
+        if (saveSession) {
+
+            saveSessionEndTime(
+                System.currentTimeMillis() +
+                    safeDuration
+            )
+        }
+
         remainingMillis =
-            durationMillis
+            safeDuration
 
         expiredText.visibility =
             View.GONE
@@ -563,18 +682,13 @@ class MainActivity : Activity() {
             Color.BLACK
         )
 
-        /*
-         * Timer selalu dibuat sebagai
-         * overlay agar tetap terlihat
-         * walaupun Activity di-Minimize.
-         */
         showTimerOverlay(
             remainingMillis
         )
 
         countDownTimer =
             object : CountDownTimer(
-                durationMillis,
+                safeDuration,
                 1000L
             ) {
 
@@ -589,18 +703,10 @@ class MainActivity : Activity() {
                         millisUntilFinished /
                             1000L
 
-                    /*
-                     * Update timer overlay.
-                     */
                     updateTimerOverlayText(
                         totalSeconds
                     )
 
-                    /*
-                     * Jika sudah masuk
-                     * 5 menit terakhir,
-                     * timer tetap tampil.
-                     */
                     if (
                         totalSeconds <= 300L
                     ) {
@@ -618,6 +724,8 @@ class MainActivity : Activity() {
                 override fun onFinish() {
 
                     remainingMillis = 0L
+
+                    clearSavedSession()
 
                     handler.removeCallbacks(
                         hideTimerOverlayRunnable
@@ -641,8 +749,8 @@ class MainActivity : Activity() {
             }.start()
 
         /*
-         * Timer awal hanya tampil
-         * selama 10 detik.
+         * Timer hanya tampil 10 detik,
+         * kecuali sudah masuk 5 menit terakhir.
          */
         handler.postDelayed(
             hideTimerOverlayRunnable,
@@ -679,11 +787,7 @@ class MainActivity : Activity() {
         if (
             !Settings.canDrawOverlays(this)
         ) {
-            /*
-             * Jika izin overlay belum aktif,
-             * gunakan timer Activity sebagai
-             * fallback.
-             */
+
             timerText.visibility =
                 View.VISIBLE
 
@@ -702,7 +806,9 @@ class MainActivity : Activity() {
                 WINDOW_SERVICE
             ) as WindowManager
 
-        if (timerOverlayView == null) {
+        if (
+            timerOverlayView == null
+        ) {
 
             val overlay =
                 TextView(this).apply {
@@ -839,10 +945,6 @@ class MainActivity : Activity() {
 
     private fun hideTimerOverlay() {
 
-        handler.removeCallbacks(
-            hideTimerOverlayRunnable
-        )
-
         val view =
             timerOverlayView
 
@@ -881,15 +983,43 @@ class MainActivity : Activity() {
         ) {
 
             startTimer(
-                additionalMillis
+                additionalMillis,
+                true
             )
 
             return
         }
 
-        startTimer(
-            currentMillis +
+        /*
+         * Karena sessionEndTimeMillis
+         * adalah sumber waktu utama,
+         * tambahkan waktu ke waktu akhir.
+         */
+        val currentEndTime =
+            if (
+                sessionEndTimeMillis > 0L
+            ) {
+                sessionEndTimeMillis
+            } else {
+                System.currentTimeMillis() +
+                    currentMillis
+            }
+
+        val newEndTime =
+            currentEndTime +
                 additionalMillis
+
+        val newDuration =
+            newEndTime -
+                System.currentTimeMillis()
+
+        saveSessionEndTime(
+            newEndTime
+        )
+
+        startTimer(
+            newDuration,
+            false
         )
     }
 
@@ -900,6 +1030,8 @@ class MainActivity : Activity() {
         countDownTimer = null
 
         remainingMillis = 0L
+
+        clearSavedSession()
 
         handler.removeCallbacks(
             hideTimerOverlayRunnable
@@ -930,7 +1062,9 @@ class MainActivity : Activity() {
             return
         }
 
-        if (blankOverlayView != null) {
+        if (
+            blankOverlayView != null
+        ) {
 
             updateBlankOverlayText()
 
