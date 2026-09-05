@@ -1,5 +1,6 @@
 package com.rentalps.tv
 
+import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -9,9 +10,8 @@ import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
-import androidx.activity.ComponentActivity
 
-class MainActivity : ComponentActivity() {
+class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
     private lateinit var timerText: TextView
@@ -28,6 +28,12 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
 
+        hideSystemBars()
+
+        createScreen()
+    }
+
+    private fun hideSystemBars() {
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -35,8 +41,6 @@ class MainActivity : ComponentActivity() {
             View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-
-        createScreen()
     }
 
     private fun createScreen() {
@@ -113,8 +117,6 @@ class MainActivity : ComponentActivity() {
                     seconds
                 )
 
-                // Timer hanya terlihat ketika
-                // tersisa 5 menit atau kurang.
                 timerText.visibility =
                     if (totalSeconds <= 300) {
                         View.VISIBLE
