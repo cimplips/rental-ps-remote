@@ -1,32 +1,32 @@
 package com.rentalps.tv
 
+import android.graphics.Color
 import android.os.Bundle
+import android.os.CountDownTimer
+import android.view.Gravity
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var root: FrameLayout
+    private lateinit var timerText: TextView
+    private lateinit var expiredText: TextView
+
+    private var countDownTimer: CountDownTimer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
 
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_FULLSCREEN or
@@ -36,96 +36,109 @@ class MainActivity : ComponentActivity() {
             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
 
-        requestWindowFeature(Window.FEATURE_NO_TITLE)
-
-        setContent {
-            RentalPSTvScreen()
-        }
-    }
-}
-
-@Composable
-fun RentalPSTvScreen() {
-
-    var remainingSeconds by remember {
-        mutableLongStateOf(0L)
+        createScreen()
     }
 
-    var sessionActive by remember {
-        mutableStateOf(false)
-    }
+    private fun createScreen() {
 
-    LaunchedEffect(sessionActive) {
-        while (sessionActive && remainingSeconds > 0) {
-            delay(1000)
-            remainingSeconds--
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
         }
 
-        if (remainingSeconds <= 0) {
-            sessionActive = false
+        timerText = TextView(this).apply {
+            text = ""
+            textSize = 14f
+            setTextColor(Color.argb(90, 255, 255, 255))
+            gravity = Gravity.CENTER
+            visibility = View.GONE
         }
+
+        val timerParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            setMargins(0, 0, 24, 18)
+        }
+
+        root.addView(timerText, timerParams)
+
+        expiredText = TextView(this).apply {
+            text = "WAKTU HABIS\n\nSilakan ke kasir"
+            textSize = 24f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            visibility = View.VISIBLE
+        }
+
+        val expiredParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+
+        root.addView(expiredText, expiredParams)
+
+        setContentView(root)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
+    private fun startTimer(durationMillis: Long) {
 
-        if (sessionActive && remainingSeconds > 0) {
+        countDownTimer?.cancel()
 
-            // Saat sesi aktif, layar game tetap normal.
-            // Overlay timer baru muncul ketika tersisa 5 menit.
-            if (remainingSeconds <= 300) {
+        expiredText.visibility = View.GONE
 
-                Text(
-                    text = formatTime(remainingSeconds),
-                    color = Color.White.copy(alpha = 0.35f),
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(
-                            end = 16.dp,
-                            bottom = 12.dp
-                        )
+        countDownTimer = object : CountDownTimer(
+            durationMillis,
+            1000
+        ) {
+
+            override fun onTick(millisUntilFinished: Long) {
+
+                val totalSeconds =
+                    millisUntilFinished / 1000
+
+                val hours =
+                    totalSeconds / 3600
+
+                val minutes =
+                    (totalSeconds % 3600) / 60
+
+                val seconds =
+                    totalSeconds % 60
+
+                timerText.text = String.format(
+                    "%02d:%02d:%02d",
+                    hours,
+                    minutes,
+                    seconds
                 )
+
+                // Timer hanya terlihat ketika
+                // tersisa 5 menit atau kurang.
+                timerText.visibility =
+                    if (totalSeconds <= 300) {
+                        View.VISIBLE
+                    } else {
+                        View.GONE
+                    }
             }
 
-        } else {
+            override fun onFinish() {
 
-            // Waktu habis → blank screen.
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
+                timerText.visibility = View.GONE
 
-                Text(
-                    text = "WAKTU HABIS",
-                    color = Color.White,
-                    fontSize = 32.sp
-                )
+                expiredText.visibility = View.VISIBLE
 
-                Text(
-                    text = "Silakan ke kasir",
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 18.sp,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
+                root.setBackgroundColor(Color.BLACK)
             }
-        }
+
+        }.start()
     }
-}
 
-private fun formatTime(seconds: Long): String {
+    override fun onDestroy() {
 
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val secs = seconds % 60
+        countDownTimer?.cancel()
 
-    return "%02d:%02d:%02d".format(
-        hours,
-        minutes,
-        secs
-    )
+        super.onDestroy()
+    }
 }
