@@ -279,6 +279,7 @@ class MainActivity : Activity() {
                         20,
                         20
                     )
+                )
 
                 visibility =
                     View.VISIBLE
