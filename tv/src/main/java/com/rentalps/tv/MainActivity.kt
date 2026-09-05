@@ -8,8 +8,6 @@ import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -23,47 +21,37 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private lateinit var root: FrameLayout
-    private lateinit var timerText: TextView
-    private lateinit var expiredText: TextView
-    private lateinit var controlPanel: LinearLayout
+    private lateinit var gameView: TextView
+
+    private var timerOverlay: TextView? = null
+    private var blankOverlayView: View? = null
 
     private lateinit var preferences: SharedPreferences
 
-    private var countDownTimer: CountDownTimer? = null
     private var tvServer: TvServer? = null
+    private var sessionTimer: CountDownTimer? = null
 
-    private var timerOverlayView: View? = null
-    private var blankOverlayView: View? = null
-
-    private var titleText = "WAKTU HABIS"
-    private var messageText = "Silakan ke kasir"
-    private var billText = ""
-
-    private val handler =
-        Handler(Looper.getMainLooper())
-
-    /*
-     * Waktu berakhir sesi.
-     *
-     * Ini menjadi sumber waktu utama.
-     */
+    @Volatile
     private var sessionEndTimeMillis = 0L
 
-    private var remainingMillis = 0L
+    @Volatile
+    private var pausedRemainingMillis = 0L
 
-    private val hideTimerOverlayRunnable =
-        Runnable {
-            hideTimerOverlay()
-        }
+    @Volatile
+    private var sessionPaused = false
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    private var title = "WAKTU HABIS"
+    private var message = "Silakan ke kasir"
+    private var bill = ""
+
+    private var timerOverlayUntilMillis = 0L
+
+    private val windowManager by lazy {
+        getSystemService(WINDOW_SERVICE) as WindowManager
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        requestWindowFeature(
-            Window.FEATURE_NO_TITLE
-        )
 
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
@@ -75,372 +63,124 @@ class MainActivity : Activity() {
                 MODE_PRIVATE
             )
 
-        loadSettings()
-
-        hideSystemBars()
-        createScreen()
-        startTvServer()
-
-        /*
-         * Setelah UI dan server siap,
-         * cek apakah masih ada sesi aktif
-         * yang tersimpan.
-         */
+        loadSavedSettings()
+        buildUi()
         restoreSavedSession()
+        startTvServer()
     }
 
-    private fun hideSystemBars() {
-
-        window.decorView.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    private fun dp(value: Int): Int {
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
     }
 
-    private fun loadSettings() {
-
-        titleText =
-            preferences.getString(
-                "title",
-                "WAKTU HABIS"
-            ) ?: "WAKTU HABIS"
-
-        messageText =
-            preferences.getString(
-                "message",
-                "Silakan ke kasir"
-            ) ?: "Silakan ke kasir"
-
-        billText =
-            preferences.getString(
-                "bill",
-                ""
-            ) ?: ""
-    }
-
-    private fun saveSettings() {
-
-        preferences.edit()
-            .putString(
-                "title",
-                titleText
-            )
-            .putString(
-                "message",
-                messageText
-            )
-            .putString(
-                "bill",
-                billText
-            )
-            .apply()
-    }
-
-    /*
-     * Simpan waktu berakhir sesi.
-     */
-    private fun saveSessionEndTime(
-        endTimeMillis: Long
-    ) {
-
-        sessionEndTimeMillis =
-            endTimeMillis
-
-        preferences.edit()
-            .putLong(
-                "session_end_time",
-                endTimeMillis
-            )
-            .apply()
-    }
-
-    /*
-     * Hapus sesi tersimpan.
-     */
-    private fun clearSavedSession() {
-
-        sessionEndTimeMillis = 0L
-
-        preferences.edit()
-            .remove(
-                "session_end_time"
-            )
-            .apply()
-    }
-
-    /*
-     * Ambil sesi yang tersimpan setelah
-     * aplikasi TV dibuka kembali.
-     */
-    private fun restoreSavedSession() {
-
-        val savedEndTime =
-            preferences.getLong(
-                "session_end_time",
-                0L
-            )
-
-        if (
-            savedEndTime <= 0L
-        ) {
-            return
-        }
-
-        val currentTime =
-            System.currentTimeMillis()
-
-        val remaining =
-            savedEndTime -
-                currentTime
-
-        if (remaining > 0L) {
-
-            sessionEndTimeMillis =
-                savedEndTime
-
-            startTimer(
-                remaining,
-                false
-            )
-
-        } else {
-
-            clearSavedSession()
-
-            expiredText.visibility =
-                View.VISIBLE
-
-            root.setBackgroundColor(
-                Color.BLACK
-            )
-
-            updateExpiredText()
-
-            showBlankOverlay()
-        }
-    }
-
-    private fun createScreen() {
+    private fun buildUi() {
 
         root =
             FrameLayout(this).apply {
-
                 setBackgroundColor(
                     Color.BLACK
                 )
             }
 
-        timerText =
+        gameView =
             TextView(this).apply {
-
-                text = ""
-
-                textSize = 14f
-
-                setTextColor(
-                    Color.argb(
-                        110,
-                        255,
-                        255,
-                        255
-                    )
-                )
-
-                gravity =
-                    Gravity.CENTER
-
-                visibility =
-                    View.GONE
-
-                setPadding(
-                    10,
-                    5,
-                    10,
-                    5
-                )
-            }
-
-        val timerParams =
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-
-                gravity =
-                    Gravity.BOTTOM or
-                        Gravity.END
-
-                setMargins(
-                    0,
-                    0,
-                    24,
-                    18
-                )
-            }
-
-        root.addView(
-            timerText,
-            timerParams
-        )
-
-        expiredText =
-            TextView(this).apply {
-
+                text =
+                    "Rental PS TV\n\nMenunggu koneksi HP"
                 textSize = 24f
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                gravity =
-                    Gravity.CENTER
-
-                visibility =
-                    View.VISIBLE
-
-                setPadding(
-                    40,
-                    40,
-                    40,
-                    40
-                )
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
             }
 
         root.addView(
-            expiredText,
+            gameView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
 
-        updateExpiredText()
-
-        createControlPanel()
-
-        setContentView(root)
-    }
-
-    private fun updateExpiredText() {
-
-        expiredText.text =
-            buildExpiredText()
-    }
-
-    private fun buildExpiredText(): String {
-
-        val parts =
-            mutableListOf<String>()
-
-        if (titleText.isNotBlank()) {
-            parts.add(titleText)
-        }
-
-        if (messageText.isNotBlank()) {
-            parts.add(messageText)
-        }
-
-        if (billText.isNotBlank()) {
-            parts.add(
-                "Tagihan: $billText"
-            )
-        }
-
-        return parts.joinToString(
-            "\n\n"
-        )
-    }
-
-    private fun createControlPanel() {
-
-        controlPanel =
+        val controlPanel =
             LinearLayout(this).apply {
-
                 orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER
-
+                    LinearLayout.VERTICAL
                 setPadding(
-                    8,
-                    8,
-                    8,
-                    8
+                    dp(20),
+                    dp(20),
+                    dp(20),
+                    dp(20)
                 )
-
                 setBackgroundColor(
                     Color.argb(
-                        150,
-                        20,
-                        20,
-                        20
+                        210,
+                        18,
+                        22,
+                        28
                     )
                 )
-
-                visibility =
-                    View.VISIBLE
             }
 
-        val settingsButton =
-            Button(this).apply {
-
-                text = "⚙"
-
-                textSize = 18f
-
-                setOnClickListener {
-
-                    openOverlaySettings()
-                }
+        val statusText =
+            TextView(this).apply {
+                text =
+                    "TV siap digunakan"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(
+                    0,
+                    0,
+                    0,
+                    dp(10)
+                )
             }
+
+        val overlayButton =
+            createButton(
+                "Tampilkan di aplikasi lain"
+            )
+
+        overlayButton.setOnClickListener {
+            openOverlayPermission()
+        }
 
         val minimizeButton =
-            Button(this).apply {
+            createButton(
+                "Minimize"
+            )
 
-                text = "−"
-
-                textSize = 22f
-
-                setOnClickListener {
-
-                    minimizeApp()
-                }
-            }
+        minimizeButton.setOnClickListener {
+            moveTaskToBack(true)
+        }
 
         controlPanel.addView(
-            settingsButton,
+            statusText,
             LinearLayout.LayoutParams(
-                64,
-                56
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
+        )
+
+        controlPanel.addView(
+            overlayButton,
+            buttonParams()
         )
 
         controlPanel.addView(
             minimizeButton,
-            LinearLayout.LayoutParams(
-                64,
-                56
-            )
+            buttonParams()
         )
 
         val panelParams =
             FrameLayout.LayoutParams(
+                dp(280),
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
+                Gravity.TOP or Gravity.END
             ).apply {
-
-                gravity =
-                    Gravity.TOP or
-                        Gravity.END
-
                 setMargins(
                     0,
-                    12,
-                    12,
+                    dp(20),
+                    dp(20),
                     0
                 )
             }
@@ -449,53 +189,65 @@ class MainActivity : Activity() {
             controlPanel,
             panelParams
         )
+
+        setContentView(root)
     }
 
-    private fun openOverlaySettings() {
-
-        try {
-
-            val intent =
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse(
-                        "package:$packageName"
-                    )
+    private fun createButton(
+        textValue: String
+    ): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 13f
+            isAllCaps = false
+            setTextColor(
+                Color.rgb(
+                    45,
+                    52,
+                    64
                 )
-
-            startActivity(intent)
-
-        } catch (_: Exception) {
-
-            try {
-
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION
-                    )
+            )
+            setBackgroundColor(
+                Color.rgb(
+                    235,
+                    238,
+                    242
                 )
-
-            } catch (_: Exception) {
-            }
+            )
+            minHeight = dp(48)
         }
     }
 
-    private fun minimizeApp() {
+    private fun buttonParams():
+        LinearLayout.LayoutParams {
 
-        val intent =
-            Intent(
-                Intent.ACTION_MAIN
-            ).apply {
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(50)
+        ).apply {
+            topMargin = dp(8)
+        }
+    }
 
-                addCategory(
-                    Intent.CATEGORY_HOME
-                )
+    private fun loadSavedSettings() {
 
-                flags =
-                    Intent.FLAG_ACTIVITY_NEW_TASK
-            }
+        title =
+            preferences.getString(
+                "title",
+                "WAKTU HABIS"
+            ) ?: "WAKTU HABIS"
 
-        startActivity(intent)
+        message =
+            preferences.getString(
+                "message",
+                "Silakan ke kasir"
+            ) ?: "Silakan ke kasir"
+
+        bill =
+            preferences.getString(
+                "bill",
+                ""
+            ) ?: ""
     }
 
     private fun startTvServer() {
@@ -503,28 +255,21 @@ class MainActivity : Activity() {
         tvServer =
             TvServer(
                 port = 8787,
-
-                onCommand = { command ->
-
+                onCommand = {
+                    command ->
                     handleCommand(command)
                 },
-
                 onStatusRequest = {
-
-                    val currentTime =
+                    val now =
                         System.currentTimeMillis()
 
-                    val endTime =
-                        sessionEndTimeMillis
-
-                    if (
-                        endTime > currentTime
+                    if (sessionPaused) {
+                        "STATUS|PAUSED|$pausedRemainingMillis"
+                    } else if (
+                        sessionEndTimeMillis > now
                     ) {
-
-                        "STATUS|ACTIVE|$endTime"
-
+                        "STATUS|ACTIVE|$sessionEndTimeMillis"
                     } else {
-
                         "STATUS|IDLE|0"
                     }
                 }
@@ -532,184 +277,284 @@ class MainActivity : Activity() {
 
         tvServer?.start()
     }
+
     private fun handleCommand(
         command: String
     ) {
 
         when {
-
-            command == "PING" -> {
-                // Tes koneksi.
-            }
-
-            command.startsWith(
-                "SET_TITLE:"
-            ) -> {
-
-                titleText =
-                    command
-                        .substringAfter(
-                            "SET_TITLE:"
-                        )
-                        .trim()
-
-                saveSettings()
-
-                updateExpiredText()
-
-                updateBlankOverlayText()
-            }
-
-            command.startsWith(
-                "SET_MESSAGE:"
-            ) -> {
-
-                messageText =
-                    command
-                        .substringAfter(
-                            "SET_MESSAGE:"
-                        )
-                        .trim()
-
-                saveSettings()
-
-                updateExpiredText()
-
-                updateBlankOverlayText()
-            }
-
-            command.startsWith(
-                "SET_BILL:"
-            ) -> {
-
-                billText =
-                    command
-                        .substringAfter(
-                            "SET_BILL:"
-                        )
-                        .trim()
-
-                saveSettings()
-
-                updateExpiredText()
-
-                updateBlankOverlayText()
-            }
-
-            command == "CLEAR_BILL" -> {
-
-                billText = ""
-
-                saveSettings()
-
-                updateExpiredText()
-
-                updateBlankOverlayText()
-            }
-
-            command.startsWith(
-                "START:"
-            ) -> {
+            command.startsWith("START:") -> {
 
                 val seconds =
                     command
-                        .substringAfter(
-                            "START:"
-                        )
+                        .substringAfter("START:")
                         .toLongOrNull()
+                        ?: 0L
 
-                if (
-                    seconds != null &&
-                    seconds > 0
-                ) {
-
-                    removeBlankOverlay()
-
-                    startTimer(
-                        seconds * 1000L,
-                        true
-                    )
-                }
-            }
-
-            command.startsWith(
-                "ADD:"
-            ) -> {
-
-                val seconds =
-                    command
-                        .substringAfter(
-                            "ADD:"
-                        )
-                        .toLongOrNull()
-
-                if (
-                    seconds != null &&
-                    seconds > 0
-                ) {
-
-                    removeBlankOverlay()
-
-                    addTime(
+                if (seconds > 0L) {
+                    startSession(
                         seconds * 1000L
                     )
                 }
             }
 
+            command.startsWith("ADD:") -> {
+
+                val seconds =
+                    command
+                        .substringAfter("ADD:")
+                        .toLongOrNull()
+                        ?: 0L
+
+                if (seconds > 0L) {
+                    addSessionTime(
+                        seconds * 1000L
+                    )
+                }
+            }
+
+            command == "PAUSE" -> {
+                pauseSession()
+            }
+
+            command == "RESUME" -> {
+                resumeSession()
+            }
+
             command == "STOP" -> {
+                stopSession()
+            }
 
-                stopTimer()
+            command.startsWith("SET_TITLE:") -> {
 
-                showBlankOverlay()
+                title =
+                    command
+                        .substringAfter("SET_TITLE:")
+                        .trim()
+
+                saveDisplaySettings()
+            }
+
+            command.startsWith("SET_MESSAGE:") -> {
+
+                message =
+                    command
+                        .substringAfter("SET_MESSAGE:")
+                        .trim()
+
+                saveDisplaySettings()
+            }
+
+            command.startsWith("SET_BILL:") -> {
+
+                bill =
+                    command
+                        .substringAfter("SET_BILL:")
+                        .trim()
+
+                saveDisplaySettings()
+            }
+
+            command == "CLEAR_BILL" -> {
+
+                bill = ""
+                saveDisplaySettings()
             }
         }
     }
 
-    /*
-     * Memulai countdown berdasarkan
-     * waktu absolut sesi.
-     */
-    private fun startTimer(
-        durationMillis: Long,
-        saveSession: Boolean
+    private fun startSession(
+        durationMillis: Long
     ) {
 
-        countDownTimer?.cancel()
+        runOnUiThread {
 
-        handler.removeCallbacks(
-            hideTimerOverlayRunnable
-        )
+            removeBlankOverlay()
 
-        val safeDuration =
-            durationMillis.coerceAtLeast(
-                1000L
+            sessionPaused = false
+            pausedRemainingMillis = 0L
+
+            sessionEndTimeMillis =
+                System.currentTimeMillis() +
+                    durationMillis
+
+            saveSession()
+
+            showTimerOverlayTemporarily()
+
+            gameView.text =
+                "Sesi aktif"
+
+            gameView.setTextColor(
+                Color.TRANSPARENT
             )
 
-        if (saveSession) {
+            startSessionTimer()
+        }
+    }
 
-            saveSessionEndTime(
-                System.currentTimeMillis() +
-                    safeDuration
+    private fun addSessionTime(
+        durationMillis: Long
+    ) {
+
+        runOnUiThread {
+
+            if (sessionPaused) {
+
+                pausedRemainingMillis +=
+                    durationMillis
+
+                saveSession()
+
+                showTimerOverlayTemporarily()
+
+                return@runOnUiThread
+            }
+
+            val now =
+                System.currentTimeMillis()
+
+            val base =
+                if (
+                    sessionEndTimeMillis > now
+                ) {
+                    sessionEndTimeMillis
+                } else {
+                    now
+                }
+
+            sessionEndTimeMillis =
+                base + durationMillis
+
+            saveSession()
+
+            showTimerOverlayTemporarily()
+
+            removeBlankOverlay()
+
+            startSessionTimer()
+        }
+    }
+
+    private fun pauseSession() {
+
+        runOnUiThread {
+
+            if (sessionPaused) {
+                return@runOnUiThread
+            }
+
+            val now =
+                System.currentTimeMillis()
+
+            val remaining =
+                sessionEndTimeMillis - now
+
+            if (remaining <= 0L) {
+                showExpired()
+                return@runOnUiThread
+            }
+
+            pausedRemainingMillis =
+                remaining
+
+            sessionEndTimeMillis = 0L
+            sessionPaused = true
+
+            sessionTimer?.cancel()
+            sessionTimer = null
+
+            saveSession()
+
+            hideTimerOverlay()
+
+            gameView.text =
+                "SESI DI-PAUSE"
+
+            gameView.setTextColor(
+                Color.WHITE
             )
         }
+    }
 
-        remainingMillis =
-            safeDuration
+    private fun resumeSession() {
 
-        expiredText.visibility =
-            View.GONE
+        runOnUiThread {
 
-        root.setBackgroundColor(
-            Color.BLACK
-        )
+            if (!sessionPaused) {
+                return@runOnUiThread
+            }
 
-        showTimerOverlay(
-            remainingMillis
-        )
+            if (pausedRemainingMillis <= 0L) {
+                showExpired()
+                return@runOnUiThread
+            }
 
-        countDownTimer =
+            sessionEndTimeMillis =
+                System.currentTimeMillis() +
+                    pausedRemainingMillis
+
+            pausedRemainingMillis = 0L
+            sessionPaused = false
+
+            saveSession()
+
+            showTimerOverlayTemporarily()
+
+            gameView.text =
+                "Sesi aktif"
+
+            gameView.setTextColor(
+                Color.TRANSPARENT
+            )
+
+            removeBlankOverlay()
+
+            startSessionTimer()
+        }
+    }
+
+    private fun stopSession() {
+
+        runOnUiThread {
+
+            sessionTimer?.cancel()
+            sessionTimer = null
+
+            sessionEndTimeMillis = 0L
+            pausedRemainingMillis = 0L
+            sessionPaused = false
+
+            clearSavedSession()
+            hideTimerOverlay()
+
+            showBlankOverlay()
+        }
+    }
+
+    private fun startSessionTimer() {
+
+        sessionTimer?.cancel()
+
+        val endTime =
+            sessionEndTimeMillis
+
+        if (endTime <= 0L) {
+            return
+        }
+
+        val remaining =
+            endTime -
+                System.currentTimeMillis()
+
+        if (remaining <= 0L) {
+            showExpired()
+            return
+        }
+
+        sessionTimer =
             object : CountDownTimer(
-                safeDuration,
+                remaining,
                 1000L
             ) {
 
@@ -717,241 +562,539 @@ class MainActivity : Activity() {
                     millisUntilFinished: Long
                 ) {
 
-                    remainingMillis =
-                        millisUntilFinished
+                    val currentRemaining =
+                        (
+                            endTime -
+                                System.currentTimeMillis()
+                            ).coerceAtLeast(0L)
 
-                    val totalSeconds =
-                        millisUntilFinished /
-                            1000L
-
-                    updateTimerOverlayText(
-                        totalSeconds
+                    updateTimerOverlay(
+                        currentRemaining
                     )
-
-                    if (
-                        totalSeconds <= 300L
-                    ) {
-
-                        handler.removeCallbacks(
-                            hideTimerOverlayRunnable
-                        )
-
-                        showTimerOverlay(
-                            millisUntilFinished
-                        )
-                    }
                 }
 
                 override fun onFinish() {
 
-                    remainingMillis = 0L
+                    sessionTimer = null
 
-                    clearSavedSession()
-
-                    handler.removeCallbacks(
-                        hideTimerOverlayRunnable
-                    )
-
-                    hideTimerOverlay()
-
-                    timerText.text = ""
-
-                    expiredText.visibility =
-                        View.VISIBLE
-
-                    root.setBackgroundColor(
-                        Color.BLACK
-                    )
-
-                    updateExpiredText()
-
-                    showBlankOverlay()
+                    showExpired()
                 }
             }.start()
-
-        /*
-         * Timer hanya tampil 10 detik,
-         * kecuali sudah masuk 5 menit terakhir.
-         */
-        handler.postDelayed(
-            hideTimerOverlayRunnable,
-            10_000L
-        )
     }
 
-    private fun updateTimerText(
-        totalSeconds: Long
-    ) {
-
-        val hours =
-            totalSeconds / 3600L
-
-        val minutes =
-            (totalSeconds % 3600L) / 60L
-
-        val seconds =
-            totalSeconds % 60L
-
-        timerText.text =
-            String.format(
-                "%02d:%02d:%02d",
-                hours,
-                minutes,
-                seconds
-            )
-    }
-
-    private fun showTimerOverlay(
-        millis: Long
+    private fun updateTimerOverlay(
+        remainingMillis: Long
     ) {
 
         if (
-            !Settings.canDrawOverlays(this)
+            remainingMillis <= 0L
         ) {
+            hideTimerOverlay()
+            return
+        }
 
-            timerText.visibility =
-                View.VISIBLE
+        if (
+            remainingMillis <= 300_000L
+        ) {
+            showTimerOverlay()
 
-            updateTimerText(
-                millis / 1000L
-            )
+            timerOverlay?.text =
+                "◷ ${formatTime(remainingMillis)}"
 
             return
         }
 
-        val totalSeconds =
-            millis / 1000L
-
-        val windowManager =
-            getSystemService(
-                WINDOW_SERVICE
-            ) as WindowManager
-
         if (
-            timerOverlayView == null
+            System.currentTimeMillis() >
+                timerOverlayUntilMillis
         ) {
+            hideTimerOverlay()
+        } else {
+            showTimerOverlay()
 
-            val overlay =
-                TextView(this).apply {
+            timerOverlay?.text =
+                "◷ ${formatTime(remainingMillis)}"
+        }
+    }
 
-                    tag =
-                        "timer_overlay_text"
+    private fun showTimerOverlayTemporarily() {
 
-                    textSize = 14f
+        timerOverlayUntilMillis =
+            System.currentTimeMillis() +
+                10_000L
 
-                    setTextColor(
-                        Color.argb(
-                            110,
-                            255,
-                            255,
-                            255
+        val remaining =
+            if (sessionPaused) {
+                pausedRemainingMillis
+            } else {
+                (
+                    sessionEndTimeMillis -
+                        System.currentTimeMillis()
+                    ).coerceAtLeast(0L)
+            }
+
+        if (remaining > 0L) {
+            showTimerOverlay()
+
+            timerOverlay?.text =
+                "◷ ${formatTime(remaining)}"
+        }
+    }
+
+    private fun showTimerOverlay() {
+
+        runOnUiThread {
+
+            if (timerOverlay == null) {
+                timerOverlay =
+                    TextView(this).apply {
+                        textSize = 13f
+                        setTextColor(
+                            Color.argb(
+                                210,
+                                255,
+                                255,
+                                255
+                            )
                         )
-                    )
+                        setBackgroundColor(
+                            Color.argb(
+                                55,
+                                0,
+                                0,
+                                0
+                            )
+                        )
+                        setPadding(
+                            dp(10),
+                            dp(6),
+                            dp(10),
+                            dp(6)
+                        )
+                    }
+            }
+
+            if (
+                timerOverlay?.parent == null
+            ) {
+
+                val params =
+                    WindowManager.LayoutParams(
+                        dp(110),
+                        dp(42),
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        PixelFormat.TRANSLUCENT
+                    ).apply {
+                        gravity =
+                            Gravity.BOTTOM or
+                                Gravity.END
+                        x = dp(18)
+                        y = dp(18)
+                    }
+
+                if (
+                    Settings.canDrawOverlays(this)
+                ) {
+                    try {
+                        windowManager.addView(
+                            timerOverlay,
+                            params
+                        )
+                    } catch (_: Exception) {
+                    }
+                } else {
+                    timerOverlay?.let {
+                        if (it.parent == null) {
+                            root.addView(
+                                it,
+                                FrameLayout.LayoutParams(
+                                    dp(110),
+                                    dp(42),
+                                    Gravity.BOTTOM or
+                                        Gravity.END
+                                ).apply {
+                                    setMargins(
+                                        0,
+                                        0,
+                                        dp(18),
+                                        dp(18)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            timerOverlay?.visibility =
+                View.VISIBLE
+        }
+    }
+
+    private fun hideTimerOverlay() {
+
+        runOnUiThread {
+
+            timerOverlay?.visibility =
+                View.GONE
+        }
+    }
+
+    private fun showExpired() {
+
+        sessionTimer?.cancel()
+        sessionTimer = null
+
+        sessionEndTimeMillis = 0L
+        pausedRemainingMillis = 0L
+        sessionPaused = false
+
+        clearSavedSession()
+        hideTimerOverlay()
+
+        showBlankOverlay()
+    }
+
+    private fun showBlankOverlay() {
+
+        runOnUiThread {
+
+            gameView.setTextColor(
+                Color.TRANSPARENT
+            )
+
+            gameView.text = ""
+
+            if (
+                blankOverlayView != null
+            ) {
+                return@runOnUiThread
+            }
+
+            val content =
+                LinearLayout(this).apply {
+                    orientation =
+                        LinearLayout.VERTICAL
 
                     gravity =
                         Gravity.CENTER
 
                     setPadding(
-                        10,
-                        5,
-                        10,
-                        5
+                        dp(32),
+                        dp(32),
+                        dp(32),
+                        dp(32)
                     )
 
                     setBackgroundColor(
-                        Color.argb(
-                            35,
-                            255,
-                            255,
-                            255
+                        Color.BLACK
+                    )
+                }
+
+            val titleText =
+                TextView(this).apply {
+                    text = title
+                    textSize = 30f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                }
+
+            val messageText =
+                TextView(this).apply {
+                    text = message
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                    setTextColor(
+                        Color.rgb(
+                            215,
+                            218,
+                            224
+                        )
+                    )
+                    setPadding(
+                        0,
+                        dp(18),
+                        0,
+                        dp(12)
+                    )
+                }
+
+            val billText =
+                TextView(this).apply {
+                    text =
+                        if (bill.isEmpty()) {
+                            ""
+                        } else {
+                            bill
+                        }
+
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                }
+
+            content.addView(
+                titleText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            content.addView(
+                messageText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            content.addView(
+                billText,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+
+            if (
+                Settings.canDrawOverlays(this)
+            ) {
+
+                val params =
+                    WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        PixelFormat.OPAQUE
+                    ).apply {
+                        gravity = Gravity.CENTER
+                    }
+
+                try {
+                    windowManager.addView(
+                        content,
+                        params
+                    )
+
+                    blankOverlayView =
+                        content
+
+                } catch (_: Exception) {
+                    root.addView(
+                        content,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
                         )
                     )
 
-                    isFocusable = false
-
-                    isClickable = false
-
-                    text =
-                        formatTime(
-                            totalSeconds
-                        )
+                    blankOverlayView =
+                        content
                 }
 
-            val params =
-                WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSLUCENT
-                ).apply {
+            } else {
 
-                    gravity =
-                        Gravity.BOTTOM or
-                            Gravity.END
+                root.addView(
+                    content,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
 
-                    x = 24
+                blankOverlayView =
+                    content
+            }
+        }
+    }
 
-                    y = 18
-                }
+    private fun removeBlankOverlay() {
+
+        runOnUiThread {
+
+            val view =
+                blankOverlayView
+                    ?: return@runOnUiThread
 
             try {
-
-                windowManager.addView(
-                    overlay,
-                    params
-                )
-
-                timerOverlayView =
-                    overlay
-
+                if (view.parent != null) {
+                    if (view.parent === root) {
+                        root.removeView(view)
+                    } else {
+                        windowManager.removeView(view)
+                    }
+                }
             } catch (_: Exception) {
-
-                timerText.visibility =
-                    View.VISIBLE
-
-                updateTimerText(
-                    totalSeconds
-                )
-
-                return
+                try {
+                    root.removeView(view)
+                } catch (_: Exception) {
+                    try {
+                        windowManager.removeView(view)
+                    } catch (_: Exception) {
+                    }
+                }
             }
 
-        } else {
+            blankOverlayView = null
+        }
+    }
 
-            updateTimerOverlayText(
-                totalSeconds
+    private fun openOverlayPermission() {
+
+        if (
+            Settings.canDrawOverlays(this)
+        ) {
+            return
+        }
+
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse(
+                        "package:$packageName"
+                    )
+                )
+            )
+        } catch (_: Exception) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION
+                )
             )
         }
     }
 
-    private fun updateTimerOverlayText(
-        totalSeconds: Long
-    ) {
+    private fun saveDisplaySettings() {
 
-        val view =
-            timerOverlayView ?: return
-
-        val textView =
-            view as? TextView
-
-        textView?.text =
-            formatTime(
-                totalSeconds
+        preferences.edit()
+            .putString(
+                "title",
+                title
             )
+            .putString(
+                "message",
+                message
+            )
+            .putString(
+                "bill",
+                bill
+            )
+            .apply()
+    }
+
+    private fun saveSession() {
+
+        preferences.edit()
+            .putLong(
+                "session_end_time",
+                sessionEndTimeMillis
+            )
+            .putLong(
+                "paused_remaining_time",
+                pausedRemainingMillis
+            )
+            .putBoolean(
+                "session_paused",
+                sessionPaused
+            )
+            .apply()
+    }
+
+    private fun restoreSavedSession() {
+
+        sessionEndTimeMillis =
+            preferences.getLong(
+                "session_end_time",
+                0L
+            )
+
+        pausedRemainingMillis =
+            preferences.getLong(
+                "paused_remaining_time",
+                0L
+            )
+
+        sessionPaused =
+            preferences.getBoolean(
+                "session_paused",
+                false
+            )
+
+        if (sessionPaused) {
+
+            if (
+                pausedRemainingMillis > 0L
+            ) {
+                gameView.text =
+                    "SESI DI-PAUSE"
+
+                gameView.setTextColor(
+                    Color.WHITE
+                )
+            } else {
+                clearSavedSession()
+            }
+
+            return
+        }
+
+        if (
+            sessionEndTimeMillis >
+                System.currentTimeMillis()
+        ) {
+
+            gameView.text =
+                "Sesi aktif"
+
+            gameView.setTextColor(
+                Color.TRANSPARENT
+            )
+
+            startSessionTimer()
+
+        } else if (
+            sessionEndTimeMillis > 0L
+        ) {
+
+            showExpired()
+        }
+    }
+
+    private fun clearSavedSession() {
+
+        preferences.edit()
+            .remove(
+                "session_end_time"
+            )
+            .remove(
+                "paused_remaining_time"
+            )
+            .remove(
+                "session_paused"
+            )
+            .apply()
     }
 
     private fun formatTime(
-        totalSeconds: Long
+        millis: Long
     ): String {
+
+        val totalSeconds =
+            millis.coerceAtLeast(0L) /
+                1000L
 
         val hours =
             totalSeconds / 3600L
 
         val minutes =
-            (totalSeconds % 3600L) / 60L
+            (
+                totalSeconds % 3600L
+                ) / 60L
 
         val seconds =
             totalSeconds % 60L
@@ -964,272 +1107,45 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun hideTimerOverlay() {
-
-        val view =
-            timerOverlayView
-
-        if (view != null) {
-
-            val windowManager =
-                getSystemService(
-                    WINDOW_SERVICE
-                ) as WindowManager
-
-            try {
-
-                windowManager.removeView(
-                    view
-                )
-
-            } catch (_: Exception) {
-            }
-
-            timerOverlayView = null
-        }
-
-        timerText.visibility =
-            View.GONE
-    }
-
-    private fun addTime(
-        additionalMillis: Long
-    ) {
-
-        val currentMillis =
-            remainingMillis
+    override fun onResume() {
+        super.onResume()
 
         if (
-            currentMillis <= 0L
+            sessionPaused
         ) {
-
-            startTimer(
-                additionalMillis,
-                true
-            )
-
             return
         }
 
-        /*
-         * Karena sessionEndTimeMillis
-         * adalah sumber waktu utama,
-         * tambahkan waktu ke waktu akhir.
-         */
-        val currentEndTime =
-            if (
-                sessionEndTimeMillis > 0L
-            ) {
-                sessionEndTimeMillis
-            } else {
-                System.currentTimeMillis() +
-                    currentMillis
-            }
-
-        val newEndTime =
-            currentEndTime +
-                additionalMillis
-
-        val newDuration =
-            newEndTime -
+        if (
+            sessionEndTimeMillis >
                 System.currentTimeMillis()
-
-        saveSessionEndTime(
-            newEndTime
-        )
-
-        startTimer(
-            newDuration,
-            false
-        )
-    }
-
-    private fun stopTimer() {
-
-        countDownTimer?.cancel()
-
-        countDownTimer = null
-
-        remainingMillis = 0L
-
-        clearSavedSession()
-
-        handler.removeCallbacks(
-            hideTimerOverlayRunnable
-        )
-
-        hideTimerOverlay()
-
-        timerText.text = ""
-
-        timerText.visibility =
-            View.GONE
-
-        expiredText.visibility =
-            View.VISIBLE
-
-        root.setBackgroundColor(
-            Color.BLACK
-        )
-
-        updateExpiredText()
-    }
-
-    private fun showBlankOverlay() {
-
-        if (
-            !Settings.canDrawOverlays(this)
         ) {
-            return
+            startSessionTimer()
         }
-
-        if (
-            blankOverlayView != null
-        ) {
-
-            updateBlankOverlayText()
-
-            return
-        }
-
-        val overlayRoot =
-            FrameLayout(this).apply {
-
-                setBackgroundColor(
-                    Color.BLACK
-                )
-
-                isFocusable = false
-
-                isClickable = false
-            }
-
-        val overlayText =
-            TextView(this).apply {
-
-                tag =
-                    "expired_overlay_text"
-
-                textSize = 24f
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    40,
-                    40,
-                    40,
-                    40
-                )
-
-                text =
-                    buildExpiredText()
-            }
-
-        overlayRoot.addView(
-            overlayText,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        val windowManager =
-            getSystemService(
-                WINDOW_SERVICE
-            ) as WindowManager
-
-        val params =
-            WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-
-                gravity =
-                    Gravity.TOP or
-                        Gravity.START
-
-                screenOrientation =
-                    android.content.pm.ActivityInfo
-                        .SCREEN_ORIENTATION_LANDSCAPE
-            }
-
-        try {
-
-            windowManager.addView(
-                overlayRoot,
-                params
-            )
-
-            blankOverlayView =
-                overlayRoot
-
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun updateBlankOverlayText() {
-
-        val view =
-            blankOverlayView ?: return
-
-        val textView =
-            view.findViewWithTag<TextView>(
-                "expired_overlay_text"
-            )
-
-        textView?.text =
-            buildExpiredText()
-    }
-
-    private fun removeBlankOverlay() {
-
-        val view =
-            blankOverlayView ?: return
-
-        val windowManager =
-            getSystemService(
-                WINDOW_SERVICE
-            ) as WindowManager
-
-        try {
-
-            windowManager.removeView(
-                view
-            )
-
-        } catch (_: Exception) {
-        }
-
-        blankOverlayView = null
     }
 
     override fun onDestroy() {
 
-        countDownTimer?.cancel()
+        sessionTimer?.cancel()
+        sessionTimer = null
 
-        countDownTimer = null
-
-        handler.removeCallbacksAndMessages(
-            null
-        )
-
-        hideTimerOverlay()
+        tvServer?.stop()
+        tvServer = null
 
         removeBlankOverlay()
 
-        tvServer?.stop()
+        try {
+            timerOverlay?.let {
+                if (it.parent === root) {
+                    root.removeView(it)
+                } else if (it.parent != null) {
+                    windowManager.removeView(it)
+                }
+            }
+        } catch (_: Exception) {
+        }
 
-        tvServer = null
+        timerOverlay = null
 
         super.onDestroy()
     }
