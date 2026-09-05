@@ -43,10 +43,12 @@ class MainActivity : Activity() {
 
     private val hideTimerRunnable =
         Runnable {
+
             if (
                 countDownTimer != null &&
                 timerText.visibility == View.VISIBLE
             ) {
+
                 timerText.visibility =
                     View.GONE
             }
@@ -63,10 +65,11 @@ class MainActivity : Activity() {
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
 
-        preferences = getSharedPreferences(
-            "rental_ps_tv",
-            MODE_PRIVATE
-        )
+        preferences =
+            getSharedPreferences(
+                "rental_ps_tv",
+                MODE_PRIVATE
+            )
 
         loadSettings()
 
@@ -88,20 +91,23 @@ class MainActivity : Activity() {
 
     private fun loadSettings() {
 
-        titleText = preferences.getString(
-            "title",
-            "WAKTU HABIS"
-        ) ?: "WAKTU HABIS"
+        titleText =
+            preferences.getString(
+                "title",
+                "WAKTU HABIS"
+            ) ?: "WAKTU HABIS"
 
-        messageText = preferences.getString(
-            "message",
-            "Silakan ke kasir"
-        ) ?: "Silakan ke kasir"
+        messageText =
+            preferences.getString(
+                "message",
+                "Silakan ke kasir"
+            ) ?: "Silakan ke kasir"
 
-        billText = preferences.getString(
-            "bill",
-            ""
-        ) ?: ""
+        billText =
+            preferences.getString(
+                "bill",
+                ""
+            ) ?: ""
     }
 
     private fun saveSettings() {
@@ -124,36 +130,43 @@ class MainActivity : Activity() {
 
     private fun createScreen() {
 
-        root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
+        root =
+            FrameLayout(this).apply {
 
-        timerText = TextView(this).apply {
-
-            text = ""
-
-            textSize = 14f
-
-            setTextColor(
-                Color.argb(
-                    110,
-                    255,
-                    255,
-                    255
+                setBackgroundColor(
+                    Color.BLACK
                 )
-            )
+            }
 
-            gravity = Gravity.CENTER
+        timerText =
+            TextView(this).apply {
 
-            visibility = View.GONE
+                text = ""
 
-            setPadding(
-                10,
-                5,
-                10,
-                5
-            )
-        }
+                textSize = 14f
+
+                setTextColor(
+                    Color.argb(
+                        110,
+                        255,
+                        255,
+                        255
+                    )
+                )
+
+                gravity =
+                    Gravity.CENTER
+
+                visibility =
+                    View.GONE
+
+                setPadding(
+                    10,
+                    5,
+                    10,
+                    5
+                )
+            }
 
         val timerParams =
             FrameLayout.LayoutParams(
@@ -162,7 +175,8 @@ class MainActivity : Activity() {
             ).apply {
 
                 gravity =
-                    Gravity.BOTTOM or Gravity.END
+                    Gravity.BOTTOM or
+                        Gravity.END
 
                 setMargins(
                     0,
@@ -177,23 +191,28 @@ class MainActivity : Activity() {
             timerParams
         )
 
-        expiredText = TextView(this).apply {
+        expiredText =
+            TextView(this).apply {
 
-            textSize = 24f
+                textSize = 24f
 
-            setTextColor(Color.WHITE)
+                setTextColor(
+                    Color.WHITE
+                )
 
-            gravity = Gravity.CENTER
+                gravity =
+                    Gravity.CENTER
 
-            visibility = View.VISIBLE
+                visibility =
+                    View.VISIBLE
 
-            setPadding(
-                40,
-                40,
-                40,
-                40
-            )
-        }
+                setPadding(
+                    40,
+                    40,
+                    40,
+                    40
+                )
+            }
 
         val expiredParams =
             FrameLayout.LayoutParams(
@@ -233,6 +252,7 @@ class MainActivity : Activity() {
         }
 
         if (billText.isNotBlank()) {
+
             parts.add(
                 "Tagihan: $billText"
             )
@@ -245,31 +265,34 @@ class MainActivity : Activity() {
 
     private fun createControlPanel() {
 
-        controlPanel = LinearLayout(this).apply {
+        controlPanel =
+            LinearLayout(this).apply {
 
-            orientation =
-                LinearLayout.HORIZONTAL
+                orientation =
+                    LinearLayout.HORIZONTAL
 
-            gravity = Gravity.CENTER
+                gravity =
+                    Gravity.CENTER
 
-            setPadding(
-                8,
-                8,
-                8,
-                8
-            )
-
-            setBackgroundColor(
-                Color.argb(
-                    150,
-                    20,
-                    20,
-                    20
+                setPadding(
+                    8,
+                    8,
+                    8,
+                    8
                 )
-            )
 
-            visibility = View.VISIBLE
-        }
+                setBackgroundColor(
+                    Color.argb(
+                        150,
+                        20,
+                        20,
+                        20
+                    )
+                )
+
+                visibility =
+                    View.VISIBLE
+            }
 
         val settingsButton =
             Button(this).apply {
@@ -320,7 +343,8 @@ class MainActivity : Activity() {
             ).apply {
 
                 gravity =
-                    Gravity.TOP or Gravity.END
+                    Gravity.TOP or
+                        Gravity.END
 
                 setMargins(
                     0,
@@ -340,12 +364,13 @@ class MainActivity : Activity() {
 
         try {
 
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse(
-                    "package:$packageName"
+            val intent =
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse(
+                        "package:$packageName"
+                    )
                 )
-            )
 
             startActivity(intent)
 
@@ -353,9 +378,10 @@ class MainActivity : Activity() {
 
             try {
 
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION
-                )
+                val intent =
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION
+                    )
 
                 startActivity(intent)
 
@@ -366,29 +392,31 @@ class MainActivity : Activity() {
 
     private fun minimizeApp() {
 
-        val intent = Intent(
-            Intent.ACTION_MAIN
-        ).apply {
+        val intent =
+            Intent(
+                Intent.ACTION_MAIN
+            ).apply {
 
-            addCategory(
-                Intent.CATEGORY_HOME
-            )
+                addCategory(
+                    Intent.CATEGORY_HOME
+                )
 
-            flags =
-                Intent.FLAG_ACTIVITY_NEW_TASK
-        }
+                flags =
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+            }
 
         startActivity(intent)
     }
 
     private fun startTvServer() {
 
-        tvServer = TvServer(
-            port = 8787
-        ) { command ->
+        tvServer =
+            TvServer(
+                port = 8787
+            ) { command ->
 
-            handleCommand(command)
-        }
+                handleCommand(command)
+            }
 
         tvServer?.start()
     }
@@ -403,7 +431,9 @@ class MainActivity : Activity() {
                 // Tes koneksi.
             }
 
-            command.startsWith("SET_TITLE:") -> {
+            command.startsWith(
+                "SET_TITLE:"
+            ) -> {
 
                 titleText =
                     command
@@ -419,7 +449,9 @@ class MainActivity : Activity() {
                 updateOverlayText()
             }
 
-            command.startsWith("SET_MESSAGE:") -> {
+            command.startsWith(
+                "SET_MESSAGE:"
+            ) -> {
 
                 messageText =
                     command
@@ -435,7 +467,9 @@ class MainActivity : Activity() {
                 updateOverlayText()
             }
 
-            command.startsWith("SET_BILL:") -> {
+            command.startsWith(
+                "SET_BILL:"
+            ) -> {
 
                 billText =
                     command
@@ -462,7 +496,9 @@ class MainActivity : Activity() {
                 updateOverlayText()
             }
 
-            command.startsWith("START:") -> {
+            command.startsWith(
+                "START:"
+            ) -> {
 
                 val seconds =
                     command
@@ -484,7 +520,9 @@ class MainActivity : Activity() {
                 }
             }
 
-            command.startsWith("ADD:") -> {
+            command.startsWith(
+                "ADD:"
+            ) -> {
 
                 val seconds =
                     command
@@ -535,20 +573,11 @@ class MainActivity : Activity() {
         )
 
         /*
-         * Tampilkan timer SEGERA
+         * Timer langsung muncul
          * ketika sesi dimulai.
          */
         timerText.visibility =
             View.VISIBLE
-
-        /*
-         * Sembunyikan timer setelah
-         * 10 detik.
-         */
-        timerHandler.postDelayed(
-            hideTimerRunnable,
-            10_000L
-        )
 
         countDownTimer =
             object : CountDownTimer(
@@ -568,8 +597,9 @@ class MainActivity : Activity() {
                     )
 
                     /*
-                     * Lima menit terakhir:
-                     * timer harus selalu tampil.
+                     * Jika waktu sudah masuk
+                     * 5 menit terakhir, timer
+                     * harus selalu tampil.
                      */
                     if (
                         totalSeconds <= 300L
@@ -605,6 +635,19 @@ class MainActivity : Activity() {
                     showBlankOverlay()
                 }
             }.start()
+
+        /*
+         * Set timer awal selama 10 detik.
+         *
+         * Karena startTimer() juga dipakai
+         * oleh tombol Tambah 30 Menit,
+         * maka tombol tambah waktu akan
+         * mendapatkan perilaku yang sama.
+         */
+        timerHandler.postDelayed(
+            hideTimerRunnable,
+            10_000L
+        )
     }
 
     private fun updateTimerText(
@@ -658,13 +701,16 @@ class MainActivity : Activity() {
         }
 
         val hours =
-            parts[0].toLongOrNull() ?: 0L
+            parts[0].toLongOrNull()
+                ?: 0L
 
         val minutes =
-            parts[1].toLongOrNull() ?: 0L
+            parts[1].toLongOrNull()
+                ?: 0L
 
         val seconds =
-            parts[2].toLongOrNull() ?: 0L
+            parts[2].toLongOrNull()
+                ?: 0L
 
         val currentMillis =
             (
@@ -706,7 +752,9 @@ class MainActivity : Activity() {
 
     private fun showBlankOverlay() {
 
-        if (!Settings.canDrawOverlays(this)) {
+        if (
+            !Settings.canDrawOverlays(this)
+        ) {
             return
         }
 
@@ -725,6 +773,7 @@ class MainActivity : Activity() {
                 )
 
                 isFocusable = false
+
                 isClickable = false
             }
 
@@ -779,7 +828,8 @@ class MainActivity : Activity() {
             ).apply {
 
                 gravity =
-                    Gravity.TOP or Gravity.START
+                    Gravity.TOP or
+                        Gravity.START
 
                 screenOrientation =
                     android.content.pm.ActivityInfo
