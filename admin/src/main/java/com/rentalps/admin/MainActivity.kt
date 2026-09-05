@@ -1,1548 +1,974 @@
 package com.rentalps.admin
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.CountDownTimer
-import android.content.SharedPreferences
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Spinner
-import android.widget.ArrayAdapter
+import android.widget.TextView
 import java.io.PrintWriter
 import java.net.Socket
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
     private lateinit var preferences: SharedPreferences
 
-    private val executor =
-        Executors.newSingleThreadExecutor()
-
-    private lateinit var ipAddress: EditText
-
-    private lateinit var titleInput: EditText
-    private lateinit var messageInput: EditText
-    private lateinit var billInput: EditText
-
-    private lateinit var psTypeSpinner: Spinner
-    private lateinit var psTypeInput: EditText
-    private lateinit var durationInput: EditText
-    private lateinit var priceInput: EditText
-    private lateinit var addDurationInput: EditText
-    private lateinit var addPriceInput: EditText
-
-    private lateinit var statusText: TextView
-    private lateinit var sessionStatusText: TextView
-    private lateinit var remainingTimeText: TextView
-    private lateinit var sessionPriceText: TextView
+    private val executor = Executors.newCachedThreadPool()
 
     private var sessionTimer: CountDownTimer? = null
-
-    private var remainingMillis = 0L
+    private var selectedTable = 1
+    private var screen = Screen.HOME
 
     private var sessionPrice = 0L
+    private var pausedRemainingMillis = 0L
+    private var isPaused = false
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    private lateinit var root: LinearLayout
+
+    private enum class Screen {
+        HOME,
+        TABLE,
+        PS_SETTINGS,
+        TABLE_SETTINGS,
+        TV_SETTINGS
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        preferences =
-            getSharedPreferences(
-                "rental_ps_admin",
-                MODE_PRIVATE
-            )
+        preferences = getSharedPreferences(
+            "rental_ps_admin",
+            MODE_PRIVATE
+        )
 
-        buildUi()
-
-        restoreSavedSession()
+        buildHomeScreen()
     }
 
-    private fun dp(
-        value: Int
-    ): Int {
-
-        return (
-            value *
-                resources.displayMetrics.density
-            ).toInt()
+    override fun onResume() {
+        super.onResume()
+        if (screen == Screen.TABLE) {
+            restoreTableSession(selectedTable)
+        } else {
+            buildHomeScreen()
+        }
     }
 
-    private fun buildUi() {
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
-        val scrollView =
-            ScrollView(this).apply {
-
-                setBackgroundColor(
-                    Color.rgb(
-                        245,
-                        247,
-                        250
-                    )
-
-                )
-
-                isFillViewport = true
-            }
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(18),
-                    dp(24),
-                    dp(18),
-                    dp(32)
-                )
-            }
-
-        scrollView.addView(root)
-
-        /*
-         * HEADER
-         */
-
-        val title =
-            TextView(this).apply {
-
-                text = "Rental PS"
-
-                textSize = 30f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.rgb(
-                        35,
-                        42,
-                        52
-                    )
-                )
-            }
-
-        root.addView(
-            title,
-            matchParentWrapContent()
-        )
-
-        val subtitle =
-            TextView(this).apply {
-
-                text =
-                    "Kelola sesi PlayStation & Android TV"
-
-                textSize = 14f
-
-                setTextColor(
-                    Color.rgb(
-                        110,
-                        118,
-                        130
-                    )
-                )
-
-                setPadding(
-                    0,
-                    dp(5),
-                    0,
-                    dp(20)
-                )
-            }
-
-        root.addView(
-            subtitle,
-            matchParentWrapContent()
-        )
-
-        /*
-         * KONEKSI TV
-         */
-
-        addSectionTitle(
-            root,
-            "Koneksi TV"
-        )
-
-        ipAddress =
-            EditText(this).apply {
-
-                hint =
-                    "IP TV, contoh 192.168.1.20"
-
-                setSingleLine(true)
-
-                textSize = 15f
-
-                setTextColor(
-                    Color.rgb(
-                        45,
-                        52,
-                        64
-                    )
-                )
-
-                setHintTextColor(
-                    Color.rgb(
-                        125,
-                        132,
-                        143
-                    )
-                )
-
-                setPadding(
-                    dp(16),
-                    dp(10),
-                    dp(16),
-                    dp(10)
-                )
-
-                setBackgroundColor(
-                    Color.WHITE
-                )
-
-                minHeight =
-                    dp(50)
-            }
-
-        ipAddress.setText(
-            preferences.getString(
-                "tv_ip",
-                ""
-            ) ?: ""
-        )
-
-        root.addView(
-            ipAddress,
-            matchParentWrapContent()
-        )
-
-        statusText =
-            TextView(this).apply {
-
-                text =
-                    "● Belum terhubung"
-
-                textSize = 13f
-
-                setTextColor(
-                    Color.rgb(
-                        105,
-                        113,
-                        125
-                    )
-                )
-
-                setPadding(
-                    dp(4),
-                    dp(8),
-                    dp(4),
-                    dp(8)
-                )
-            }
-
-        root.addView(
-            statusText,
-            matchParentWrapContent()
-        )
-
-        val connectionButton =
-            createSoftButton(
-                "Tes Koneksi"
-            )
-
-        connectionButton.setOnClickListener {
-
-            sendCommand(
-                "PING"
-            )
+    private fun buildBase(titleText: String, subtitleText: String? = null) {
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.rgb(245, 247, 250))
+            isFillViewport = true
         }
 
-        root.addView(
-            connectionButton,
-            matchParentButton()
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(20), dp(18), dp(28))
+        }
+
+        scroll.addView(root)
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        if (screen != Screen.HOME) {
+            val back = Button(this).apply {
+                text = "‹"
+                textSize = 28f
+                setTextColor(Color.rgb(55, 63, 75))
+                setBackgroundColor(Color.TRANSPARENT)
+                minWidth = dp(44)
+                minHeight = dp(48)
+                setOnClickListener {
+                    sessionTimer?.cancel()
+                    screen = Screen.HOME
+                    buildHomeScreen()
+                }
+            }
+            header.addView(back, LinearLayout.LayoutParams(dp(50), dp(52)))
+        }
+
+        val title = TextView(this).apply {
+            text = titleText
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(35, 42, 52))
+        }
+
+        header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
+        root.addView(header, matchParentWrapContent())
+
+        if (!subtitleText.isNullOrBlank()) {
+            val subtitle = TextView(this).apply {
+                text = subtitleText
+                textSize = 13f
+                setTextColor(Color.rgb(110, 118, 130))
+                setPadding(0, 0, 0, dp(14))
+            }
+            root.addView(subtitle, matchParentWrapContent())
+        }
+
+        setContentView(scroll)
+    }
+
+    private fun buildHomeScreen() {
+        screen = Screen.HOME
+        sessionTimer?.cancel()
+
+        buildBase(
+            "Rental PS",
+            "Kelola meja, sesi PlayStation & Android TV"
         )
 
-        /*
-         * PENGATURAN SESI
-         */
+        val summary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
 
-        addSectionTitle(
-            root,
-            "Pengaturan Sesi"
+        summary.addView(
+            createSummaryCard(
+                "Total Meja",
+                TABLE_COUNT.toString(),
+                Color.rgb(90, 98, 112)
+            ),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                rightMargin = dp(6)
+            }
         )
 
-        psTypeSpinner =
-            Spinner(this).apply {
+        summary.addView(
+            createSummaryCard(
+                "Aktif",
+                countActiveTables().toString(),
+                Color.rgb(55, 125, 88)
+            ),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                leftMargin = dp(6)
+            }
+        )
 
-                val adapter =
-                    ArrayAdapter(
-                        this@MainActivity,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        arrayOf(
-                            "PS3",
-                            "PS4",
-                            "PS5"
-                        )
-                    )
+        root.addView(summary, matchParentWrapContent())
 
-                this.adapter = adapter
+        addSectionTitle(root, "Meja")
 
-                val savedType =
-                    preferences.getString(
-                        "ps_type",
-                        "PS5"
-                    ) ?: "PS5"
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
 
-                val index =
-                    when (savedType.uppercase()) {
-                        "PS3" -> 0
-                        "PS4" -> 1
-                        else -> 2
+        for (row in 0 until 5) {
+            val rowLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+
+            for (column in 0 until 2) {
+                val tableNumber = row * 2 + column + 1
+                rowLayout.addView(
+                    createTableCard(tableNumber),
+                    LinearLayout.LayoutParams(0, dp(142), 1f).apply {
+                        if (column == 0) rightMargin = dp(6)
+                        else leftMargin = dp(6)
+                        bottomMargin = dp(12)
                     }
-
-                setSelection(index)
+                )
             }
 
-        root.addView(
-            psTypeSpinner,
-            matchParentWrapContent()
-        )
-
-        psTypeInput =
-            createInput(
-                "Nama jenis PS, contoh PS5"
-            )
-
-        psTypeInput.setText(
-            preferences.getString(
-                "ps3_name",
-                "PS3"
-            ) ?: "PS3"
-        )
-
-        root.addView(
-            psTypeInput,
-            matchParentWrapContent()
-        )
-
-        durationInput =
-            createInput(
-                "Durasi sesi jenis PS ini dalam menit"
-            )
-
-        durationInput.inputType =
-            android.text.InputType.TYPE_CLASS_NUMBER
-
-        durationInput.inputType =
-            android.text.InputType.TYPE_CLASS_NUMBER
-
-        durationInput.setText(
-            preferences.getInt(
-                "ps5_duration_minutes",
-                60
-            ).toString()
-        )
-
-        root.addView(
-            durationInput,
-            matchParentWrapContent()
-        )
-
-        priceInput =
-            createInput(
-                "Tarif sesi jenis PS ini, contoh 10000"
-            )
-
-        priceInput.inputType =
-            android.text.InputType.TYPE_CLASS_NUMBER
-
-        priceInput.setText(
-            preferences.getLong(
-                "ps5_price",
-                10_000L
-            ).toString()
-        )
-
-        root.addView(
-            priceInput,
-            matchParentWrapContent()
-        )
-
-        addDurationInput =
-            createInput(
-                "Tambah waktu dalam menit"
-            )
-
-        addDurationInput.inputType =
-            android.text.InputType.TYPE_CLASS_NUMBER
-
-        addDurationInput.setText(
-            preferences.getInt(
-                "add_duration_minutes",
-                30
-            ).toString()
-        )
-
-        root.addView(
-            addDurationInput,
-            matchParentWrapContent()
-        )
-
-        addPriceInput =
-            createInput(
-                "Tarif tambah waktu, contoh 5000"
-            )
-
-        addPriceInput.inputType =
-            android.text.InputType.TYPE_CLASS_NUMBER
-
-        addPriceInput.setText(
-            preferences.getLong(
-                "add_price",
-                5_000L
-            ).toString()
-        )
-
-        root.addView(
-            addPriceInput,
-            matchParentWrapContent()
-        )
-
-        val saveSessionSettingsButton =
-            createSoftButton(
-                "Simpan Pengaturan Sesi"
-            )
-
-        saveSessionSettingsButton.setOnClickListener {
-
-            saveSessionSettings()
+            grid.addView(rowLayout, matchParentWrapContent())
         }
 
-        root.addView(
-            saveSessionSettingsButton,
-            matchParentButton()
-        )
+        root.addView(grid, matchParentWrapContent())
 
-        psTypeSpinner.onItemSelectedListener =
-            object : android.widget.AdapterView.OnItemSelectedListener {
+        addSectionTitle(root, "Pengaturan")
 
-                override fun onItemSelected(
-                    parent: android.widget.AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
-                ) {
+        val psSettingsButton = createSoftButton("Pengaturan PS")
+        psSettingsButton.setOnClickListener {
+            screen = Screen.PS_SETTINGS
+            buildPsSettingsScreen()
+        }
+        root.addView(psSettingsButton, matchParentButton())
 
-                    loadSelectedPsSettings()
-                }
+        val tableSettingsButton = createSoftButton("Pengaturan Meja")
+        tableSettingsButton.setOnClickListener {
+            screen = Screen.TABLE_SETTINGS
+            buildTableSettingsScreen()
+        }
+        root.addView(tableSettingsButton, matchParentButton())
 
-                override fun onNothingSelected(
-                    parent: android.widget.AdapterView<*>?
-                ) {
-                }
-            }
+        val tvSettingsButton = createSoftButton("Pengaturan Tampilan TV")
+        tvSettingsButton.setOnClickListener {
+            screen = Screen.TV_SETTINGS
+            buildTvSettingsScreen()
+        }
+        root.addView(tvSettingsButton, matchParentButton())
+    }
 
-        /*
-         * SESSION
-         */
+    private fun createSummaryCard(
+        label: String,
+        value: String,
+        valueColor: Int
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setBackgroundColor(Color.WHITE)
 
-        addSectionTitle(
-            root,
-            "Sesi Aktif"
-        )
-
-        val sessionCard =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(18),
-                    dp(18),
-                    dp(18),
-                    dp(18)
-                )
-
-                setBackgroundColor(
-                    Color.WHITE
-                )
-            }
-
-        val psName =
-            TextView(this).apply {
-
-                text = "PS 01"
-
-                textSize = 20f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.rgb(
-                        38,
-                        45,
-                        55
-                    )
-                )
-            }
-
-        sessionCard.addView(
-            psName,
-            matchParentWrapContent()
-        )
-
-        sessionStatusText =
-            TextView(this).apply {
-
-                text =
-                    "● Sesi selesai"
-
-                textSize = 13f
-
-                setTextColor(
-                    Color.rgb(
-                        105,
-                        113,
-                        125
-                    )
-                )
-
-                setPadding(
-                    0,
-                    dp(4),
-                    0,
-                    dp(8)
-                )
-            }
-
-        sessionCard.addView(
-            sessionStatusText,
-            matchParentWrapContent()
-        )
-
-        remainingTimeText =
-            TextView(this).apply {
-
-                text = "00:00:00"
-
-                textSize = 38f
-
-                gravity =
-                    Gravity.CENTER
-
-                typeface =
-                    Typeface.create(
-                        Typeface.DEFAULT,
-                        Typeface.BOLD
-                    )
-
-                setTextColor(
-                    Color.rgb(
-                        45,
-                        52,
-                        64
-                    )
-                )
-
-                setPadding(
-                    0,
-                    dp(8),
-                    0,
-                    dp(4)
-                )
-            }
-
-        sessionCard.addView(
-            remainingTimeText,
-            matchParentWrapContent()
-        )
-
-        val remainingLabel =
-            TextView(this).apply {
-
-                text =
-                    "Waktu tersisa"
-
+            addView(TextView(this@MainActivity).apply {
+                text = label
                 textSize = 12f
+                setTextColor(Color.rgb(125, 132, 143))
+            }, matchParentWrapContent())
 
-                gravity =
-                    Gravity.CENTER
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                textSize = 25f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(valueColor)
+            }, matchParentWrapContent())
+        }
+    }
 
-                setTextColor(
-                    Color.rgb(
-                        130,
-                        138,
-                        150
-                    )
-                )
+    private fun createTableCard(tableNumber: Int): LinearLayout {
+        val active = isTableActive(tableNumber)
+        val paused = isTablePaused(tableNumber)
+        val psType = getTablePsType(tableNumber)
+        val remaining = getTableRemaining(tableNumber)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(12), dp(10), dp(12))
+            setBackgroundColor(
+                if (active) Color.rgb(237, 248, 241) else Color.WHITE
+            )
+            setOnClickListener {
+                selectedTable = tableNumber
+                screen = Screen.TABLE
+                restoreTableSession(tableNumber)
+                buildTableScreen()
             }
-
-        sessionCard.addView(
-            remainingLabel,
-            matchParentWrapContent()
-        )
-
-        sessionPriceText =
-            TextView(this).apply {
-
-                text =
-                    "Rp 0"
-
-                textSize = 16f
-
-                gravity =
-                    Gravity.CENTER
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.rgb(
-                        70,
-                        78,
-                        90
-                    )
-                )
-
-                setPadding(
-                    0,
-                    dp(10),
-                    0,
-                    dp(8)
-                )
-            }
-
-        sessionCard.addView(
-            sessionPriceText,
-            matchParentWrapContent()
-        )
-
-        /*
-         * MULAI
-         */
-
-        val startButton =
-            createPrimaryButton(
-                "Mulai Sesi"
-            )
-
-        startButton.setOnClickListener {
-
-            val durationMinutes =
-                durationInput.text
-                    .toString()
-                    .trim()
-                    .toLongOrNull()
-                    ?.coerceAtLeast(1L)
-                    ?: 60L
-
-            val price =
-                priceInput.text
-                    .toString()
-                    .replace(".", "")
-                    .replace(",", "")
-                    .trim()
-                    .toLongOrNull()
-                    ?.coerceAtLeast(0L)
-                    ?: 10_000L
-
-            val durationSeconds =
-                durationMinutes * 60L
-
-            sessionPrice =
-                price
-
-            saveSessionSettings()
-
-            saveSessionEndTime(
-                System.currentTimeMillis() +
-                    durationMinutes * 60_000L
-            )
-
-            sendCommand(
-                "START:$durationSeconds"
-            )
-
-            startLocalTimer(
-                durationMinutes * 60_000L
-            )
-
-            sessionStatusText.text =
-                "● Sesi aktif"
-
-            sessionPriceText.text =
-                formatRupiah(
-                    sessionPrice
-                )
         }
 
-        sessionCard.addView(
-            startButton,
-            matchParentButton()
-        )
-
-        /*
-         * TAMBAH
-         */
-
-        val addButton =
-            createSoftButton(
-                "+ Tambah 30 Menit  •  Rp 5.000"
+        card.addView(TextView(this).apply {
+            text = String.format(Locale.US, "%02d", tableNumber)
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(
+                if (active) Color.rgb(35, 115, 72)
+                else Color.rgb(35, 42, 52)
             )
+        }, matchParentWrapContent())
 
-        addButton.setOnClickListener {
+        card.addView(TextView(this).apply {
+            text = psType
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(80, 88, 100))
+        }, matchParentWrapContent())
 
-            val currentEndTime =
-                getSavedSessionEndTime()
-
-            val baseEndTime =
-                if (
-                    currentEndTime > System.currentTimeMillis()
-                ) {
-                    currentEndTime
-                } else {
-                    System.currentTimeMillis()
+        card.addView(TextView(this).apply {
+            text = when {
+                paused -> "● Pause"
+                active -> "● Aktif"
+                else -> "○ Kosong"
+            }
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(
+                when {
+                    paused -> Color.rgb(150, 112, 55)
+                    active -> Color.rgb(55, 125, 88)
+                    else -> Color.rgb(125, 132, 143)
                 }
-
-            val addMinutes =
-                addDurationInput.text
-                    .toString()
-                    .trim()
-                    .toLongOrNull()
-                    ?.coerceAtLeast(1L)
-                    ?: 30L
-
-            val addPrice =
-                addPriceInput.text
-                    .toString()
-                    .replace(".", "")
-                    .replace(",", "")
-                    .trim()
-                    .toLongOrNull()
-                    ?.coerceAtLeast(0L)
-                    ?: 5_000L
-
-            val newEndTime =
-                baseEndTime +
-                    addMinutes * 60_000L
-
-            saveSessionSettings()
-
-            saveSessionEndTime(
-                newEndTime
             )
+        }, matchParentWrapContent())
 
-            sendCommand(
-                "ADD:${addMinutes * 60L}"
-            )
-
-            startTimerUntil(
-                newEndTime
-            )
-
-            sessionPrice +=
-                addPrice
-
-            sessionPriceText.text =
-                formatRupiah(
-                    sessionPrice
-                )
-
-            sessionStatusText.text =
-                "● Sesi aktif"
+        if (active || paused) {
+            card.addView(TextView(this).apply {
+                text = formatTime(remaining)
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(70, 78, 90))
+                setPadding(0, dp(4), 0, 0)
+            }, matchParentWrapContent())
         }
 
-        sessionCard.addView(
-            addButton,
-            matchParentButton()
-        )
-
-        /*
-         * AKHIRI
-         */
-
-        val stopButton =
-            createDangerButton(
-                "Akhiri Sesi"
-            )
-
-        stopButton.setOnClickListener {
-
-            sendCommand(
-                "STOP"
-            )
-
-            stopLocalTimer()
-
-            sessionStatusText.text =
-                "● Sesi selesai"
-
-            remainingTimeText.text =
-                "00:00:00"
-
-            sessionPriceText.text =
-                "Rp 0"
-
-            sessionPrice =
-                0L
-        }
-
-        sessionCard.addView(
-            stopButton,
-            matchParentButton()
-        )
-
-        root.addView(
-            sessionCard,
-            matchParentWrapContent()
-        )
-
-        /*
-         * TAMPILAN WAKTU HABIS
-         */
-
-        addSectionTitle(
-            root,
-            "Tampilan Saat Waktu Habis"
-        )
-
-        titleInput =
-            createInput(
-                "Judul"
-            )
-
-        titleInput.setText(
-            "WAKTU HABIS"
-        )
-
-        root.addView(
-            titleInput,
-            matchParentWrapContent()
-        )
-
-        messageInput =
-            createInput(
-                "Pesan"
-            )
-
-        messageInput.setText(
-            "Silakan ke kasir"
-        )
-
-        messageInput.minLines =
-            2
-
-        root.addView(
-            messageInput,
-            matchParentWrapContent()
-        )
-
-        billInput =
-            createInput(
-                "Tagihan, contoh Rp 25.000"
-            )
-
-        root.addView(
-            billInput,
-            matchParentWrapContent()
-        )
-
-        /*
-         * SIMPAN
-         */
-
-        val saveDisplayButton =
-            createSoftButton(
-                "Simpan Tampilan ke TV"
-            )
-
-        saveDisplayButton.setOnClickListener {
-
-            sendDisplaySettings()
-        }
-
-        root.addView(
-            saveDisplayButton,
-            matchParentButton()
-        )
-
-        /*
-         * HAPUS TAGIHAN
-         */
-
-        val clearBillButton =
-            createSoftButton(
-                "Hapus Tagihan di TV"
-            )
-
-        clearBillButton.setOnClickListener {
-
-            sendCommand(
-                "CLEAR_BILL"
-            )
-        }
-
-        root.addView(
-            clearBillButton,
-            matchParentButton()
-        )
-
-        /*
-         * INFO
-         */
-
-        val infoText =
-            TextView(this).apply {
-
-                text =
-                    """
-                    TV akan tetap menyala selama sesi.
-
-                    Saat waktu habis, TV menampilkan
-                    blank screen dan informasi tagihan.
-
-                    Pengaturan QRIS dan gambar akan
-                    kita tambahkan pada tahap berikutnya.
-                    """.trimIndent()
-
-                textSize = 13f
-
-                setTextColor(
-                    Color.rgb(
-                        110,
-                        118,
-                        130
-                    )
-                )
-
-                setPadding(
-                    dp(4),
-                    dp(20),
-                    dp(4),
-                    dp(8)
-                )
-            }
-
-        root.addView(
-            infoText,
-            matchParentWrapContent()
-        )
-
-        setContentView(
-            scrollView
-        )
+        return card
     }
 
-    private fun createInput(
-        hintText: String
-    ): EditText {
-
-        return EditText(this).apply {
-
-            hint =
-                hintText
-
-            textSize = 15f
-
-            setTextColor(
-                Color.rgb(
-                    45,
-                    52,
-                    64
-                )
-            )
-
-            setHintTextColor(
-                Color.rgb(
-                    125,
-                    132,
-                    143
-                )
-            )
-
-            setPadding(
-                dp(16),
-                dp(10),
-                dp(16),
-                dp(10)
-            )
-
-            setBackgroundColor(
-                Color.WHITE
-            )
-
-            minHeight =
-                dp(50)
-        }
-    }
-
-    private fun createSoftButton(
-        textValue: String
-    ): Button {
-
-        return Button(this).apply {
-
-            text =
-                textValue
-
-            textSize = 14f
-
-            gravity =
-                Gravity.CENTER
-
-            setTextColor(
-                Color.rgb(
-                    55,
-                    63,
-                    75
-                )
-            )
-
-            setBackgroundColor(
-                Color.rgb(
-                    232,
-                    236,
-                    241
-                )
-            )
-
-            isAllCaps = false
-
-            minHeight =
-                dp(52)
-
-            minimumHeight =
-                dp(52)
-
-            setPadding(
-                dp(12),
-                dp(6),
-                dp(12),
-                dp(6)
-            )
-
-            includeFontPadding = true
-        }
-    }
-
-    private fun createPrimaryButton(
-        textValue: String
-    ): Button {
-
-        return Button(this).apply {
-
-            text =
-                textValue
-
-            textSize = 14f
-
-            gravity =
-                Gravity.CENTER
-
-            setTextColor(
-                Color.WHITE
-            )
-
-            setBackgroundColor(
-                Color.rgb(
-                    70,
-                    78,
-                    92
-                )
-            )
-
-            isAllCaps = false
-
-            minHeight =
-                dp(52)
-
-            minimumHeight =
-                dp(52)
-
-            setPadding(
-                dp(12),
-                dp(6),
-                dp(12),
-                dp(6)
-            )
-
-            includeFontPadding = true
-        }
-    }
-
-    private fun createDangerButton(
-        textValue: String
-    ): Button {
-
-        return Button(this).apply {
-
-            text =
-                textValue
-
-            textSize = 14f
-
-            gravity =
-                Gravity.CENTER
-
-            setTextColor(
-                Color.rgb(
-                    90,
-                    70,
-                    70
-                )
-            )
-
-            setBackgroundColor(
-                Color.rgb(
-                    242,
-                    232,
-                    232
-                )
-            )
-
-            isAllCaps = false
-
-            minHeight =
-                dp(52)
-
-            minimumHeight =
-                dp(52)
-
-            setPadding(
-                dp(12),
-                dp(6),
-                dp(12),
-                dp(6)
-            )
-
-            includeFontPadding = true
-        }
-    }
-
-    private fun startLocalTimer(
-        durationMillis: Long
-    ) {
-
-        val endTime =
-            System.currentTimeMillis() +
-                durationMillis
-
-        saveSessionEndTime(
-            endTime
-        )
-
-        startTimerUntil(
-            endTime
-        )
-    }
-
-    private fun startTimerUntil(
-        endTimeMillis: Long
-    ) {
-
+    private fun buildTableScreen() {
         sessionTimer?.cancel()
+        restoreTableSession(selectedTable)
 
-        val remaining =
-            endTimeMillis -
-                System.currentTimeMillis()
+        val psType = getTablePsType(selectedTable)
+        val pricePerHour = getPsPrice(psType)
 
-        if (remaining <= 0L) {
+        buildBase(
+            String.format(Locale.US, "Meja %02d", selectedTable),
+            "${getPsName(psType)}  •  ${formatRupiah(pricePerHour)} / jam"
+        )
 
-            remainingMillis =
-                0L
-
-            remainingTimeText.text =
-                "00:00:00"
-
-            sessionStatusText.text =
-                "● Waktu habis"
-
-            clearSavedSession()
-
-            sessionTimer = null
-
-            return
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(24), dp(20), dp(24))
+            setBackgroundColor(Color.WHITE)
         }
 
-        remainingMillis =
-            remaining
+        card.addView(TextView(this).apply {
+            text = getPsName(psType)
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(45, 52, 64))
+        }, matchParentWrapContent())
 
-        updateSessionTimeAppearance(
-            remainingMillis
-        )
+        val remainingText = TextView(this).apply {
+            text = formatTime(currentTableRemaining())
+            textSize = 40f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(55, 63, 75))
+            setPadding(0, dp(20), 0, dp(2))
+        }
+        card.addView(remainingText, matchParentWrapContent())
 
-        sessionTimer =
-            object : CountDownTimer(
-                remaining,
-                1000L
-            ) {
+        val statusText = TextView(this).apply {
+            text = when {
+                isPaused -> "● Sesi dijeda"
+                isCurrentTableActive() -> "● Sesi aktif"
+                else -> "○ Meja kosong"
+            }
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(
+                if (isPaused) Color.rgb(150, 112, 55)
+                else Color.rgb(105, 113, 125)
+            )
+            setPadding(0, 0, 0, dp(14))
+        }
+        card.addView(statusText, matchParentWrapContent())
 
-                override fun onTick(
-                    millisUntilFinished: Long
-                ) {
+        if (!isCurrentTableActive() && !isPaused) {
+            val startButton = createPrimaryButton("▶  MULAI")
+            startButton.setOnClickListener {
+                showStartDurationDialog()
+            }
+            card.addView(startButton, matchParentButton())
+        } else {
+            val firstRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
 
-                    val currentRemaining =
-                        endTimeMillis -
-                            System.currentTimeMillis()
+            val addButton = createSoftButton("+ JAM")
+            addButton.setOnClickListener {
+                addOneHour()
+            }
 
-                    remainingMillis =
-                        currentRemaining.coerceAtLeast(
-                            0L
-                        )
+            val pauseButton = createSoftButton(
+                if (isPaused) "▶ LANJUT" else "Ⅱ PAUSE"
+            )
+            pauseButton.setOnClickListener {
+                if (isPaused) resumeTable() else pauseTable()
+            }
 
-                    remainingTimeText.text =
-                        formatTime(
-                            remainingMillis
-                        )
-
-                    updateSessionTimeAppearance(
-                        remainingMillis
-                    )
+            firstRow.addView(
+                addButton,
+                LinearLayout.LayoutParams(0, dp(58), 1f).apply {
+                    rightMargin = dp(5)
                 }
-
-                override fun onFinish() {
-
-                    remainingMillis =
-                        0L
-
-                    remainingTimeText.text =
-                        "00:00:00"
-
-                    updateSessionTimeAppearance(
-                        0L
-                    )
-
-                    clearSavedSession()
-
-                    sessionTimer = null
+            )
+            firstRow.addView(
+                pauseButton,
+                LinearLayout.LayoutParams(0, dp(58), 1f).apply {
+                    leftMargin = dp(5)
                 }
-            }.start()
+            )
+
+            card.addView(firstRow, matchParentWrapContent())
+
+            val finishButton = createDangerButton("■  SELESAI")
+            finishButton.setOnClickListener {
+                finishTableSession()
+            }
+            card.addView(finishButton, matchParentButton())
+        }
+
+        val billCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(18), dp(14), dp(18))
+            setBackgroundColor(Color.rgb(248, 249, 251))
+        }
+
+        billCard.addView(TextView(this@MainActivity).apply {
+            text = "Tagihan"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(110, 118, 130))
+        }, matchParentWrapContent())
+
+        billCard.addView(TextView(this@MainActivity).apply {
+            text = formatRupiah(sessionPrice)
+            textSize = 25f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(70, 78, 92))
+        }, matchParentWrapContent())
+
+        card.addView(billCard, matchParentWrapContent())
+        root.addView(card, matchParentWrapContent())
+
+        if (isCurrentTableActive() && !isPaused) {
+            startTableTimer(selectedTable, remainingText, statusText)
+        }
     }
 
-    private fun restartLocalTimer(
-        durationMillis: Long
-    ) {
+    private fun showStartDurationDialog() {
+        val psType = getTablePsType(selectedTable)
+        val baseDuration = getPsDuration(psType)
+        val baseHours = (baseDuration / 60).coerceAtLeast(1)
 
-        startLocalTimer(
-            durationMillis
+        val options = arrayOf(
+            "1 Jam",
+            "2 Jam",
+            "3 Jam",
+            "4 Jam"
         )
+
+        AlertDialog.Builder(this)
+            .setTitle("Mulai Sesi")
+            .setMessage("Durasi dasar ${baseDuration} menit • ${formatRupiah(getPsPrice(psType))} / jam")
+            .setItems(options) { _, which ->
+                val hours = which + 1
+                startTableSession(hours)
+            }
+            .setNegativeButton("BATAL", null)
+            .show()
     }
 
-    private fun stopLocalTimer() {
+    private fun startTableSession(hours: Int) {
+        val psType = getTablePsType(selectedTable)
+        val durationMinutes = getPsDuration(psType) * hours
+        val price = getPsPrice(psType) * hours
+        val endTime = System.currentTimeMillis() + durationMinutes * 60_000L
 
+        sessionPrice = price
+        pausedRemainingMillis = 0L
+        isPaused = false
+
+        preferences.edit()
+            .putLong(tableKey(selectedTable, "session_end_time"), endTime)
+            .putLong(tableKey(selectedTable, "session_price"), price)
+            .putBoolean(tableKey(selectedTable, "active"), true)
+            .putBoolean(tableKey(selectedTable, "paused"), false)
+            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
+            .apply()
+
+        sendCommandToTable(selectedTable, "START:${durationMinutes * 60L}")
+        buildTableScreen()
+    }
+
+    private fun addOneHour() {
+        val psType = getTablePsType(selectedTable)
+        val currentEnd = preferences.getLong(
+            tableKey(selectedTable, "session_end_time"),
+            System.currentTimeMillis()
+        )
+
+        val baseEnd = maxOf(currentEnd, System.currentTimeMillis())
+        val newEnd = baseEnd + 3_600_000L
+        sessionPrice += getPsPrice(psType)
+
+        preferences.edit()
+            .putLong(tableKey(selectedTable, "session_end_time"), newEnd)
+            .putLong(tableKey(selectedTable, "session_price"), sessionPrice)
+            .putBoolean(tableKey(selectedTable, "active"), true)
+            .putBoolean(tableKey(selectedTable, "paused"), false)
+            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
+            .apply()
+
+        isPaused = false
+        pausedRemainingMillis = 0L
+
+        sendCommandToTable(selectedTable, "ADD:3600")
+        buildTableScreen()
+    }
+
+    private fun pauseTable() {
+        val remaining = currentTableRemaining()
+        if (remaining <= 0L) return
+
+        pausedRemainingMillis = remaining
+        isPaused = true
         sessionTimer?.cancel()
-
         sessionTimer = null
 
-        remainingMillis =
-            0L
+        preferences.edit()
+            .putBoolean(tableKey(selectedTable, "paused"), true)
+            .putLong(tableKey(selectedTable, "paused_remaining"), remaining)
+            .putLong(tableKey(selectedTable, "session_end_time"), 0L)
+            .apply()
+
+        sendCommandToTable(selectedTable, "PAUSE")
+        buildTableScreen()
     }
 
-    private fun saveSessionEndTime(
-        endTimeMillis: Long
-    ) {
+    private fun resumeTable() {
+        if (pausedRemainingMillis <= 0L) return
+
+        val newEnd = System.currentTimeMillis() + pausedRemainingMillis
+        isPaused = false
 
         preferences.edit()
-            .putLong(
-                "session_end_time",
-                endTimeMillis
-            )
+            .putBoolean(tableKey(selectedTable, "paused"), false)
+            .putBoolean(tableKey(selectedTable, "active"), true)
+            .putLong(tableKey(selectedTable, "session_end_time"), newEnd)
+            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
             .apply()
+
+        sendCommandToTable(
+            selectedTable,
+            "START:${pausedRemainingMillis / 1000L}"
+        )
+
+        pausedRemainingMillis = 0L
+        buildTableScreen()
     }
 
-    private fun getSavedSessionEndTime(): Long {
+    private fun finishTableSession() {
+        sessionTimer?.cancel()
+        sessionTimer = null
 
-        return preferences.getLong(
-            "session_end_time",
+        sendCommandToTable(selectedTable, "STOP")
+
+        preferences.edit()
+            .remove(tableKey(selectedTable, "session_end_time"))
+            .remove(tableKey(selectedTable, "session_price"))
+            .remove(tableKey(selectedTable, "paused_remaining"))
+            .putBoolean(tableKey(selectedTable, "active"), false)
+            .putBoolean(tableKey(selectedTable, "paused"), false)
+            .apply()
+
+        sessionPrice = 0L
+        pausedRemainingMillis = 0L
+        isPaused = false
+
+        buildTableScreen()
+    }
+
+    private fun startTableTimer(
+        tableNumber: Int,
+        remainingText: TextView,
+        statusText: TextView
+    ) {
+        val endTime = preferences.getLong(
+            tableKey(tableNumber, "session_end_time"),
             0L
         )
-    }
 
-    private fun clearSavedSession() {
-
-        preferences.edit()
-            .remove(
-                "session_end_time"
-            )
-            .apply()
-    }
-
-    private fun restoreSavedSession() {
-
-        val savedEndTime =
-            getSavedSessionEndTime()
-
-        if (
-            savedEndTime <= 0L
-        ) {
-            return
-        }
-
-        if (
-            savedEndTime >
-            System.currentTimeMillis()
-        ) {
-
-            sessionStatusText.text =
-                "● Sesi aktif"
-
-            startTimerUntil(
-                savedEndTime
-            )
-
-        } else {
-
-            clearSavedSession()
-
-            remainingTimeText.text =
-                "00:00:00"
-
-            sessionStatusText.text =
-                "● Waktu habis"
-        }
-    }
-
-    private fun updateSessionTimeAppearance(
-        remaining: Long
-    ) {
-
+        val remaining = endTime - System.currentTimeMillis()
         if (remaining <= 0L) {
-            remainingTimeText.setTextColor(
-                Color.rgb(
-                    90,
-                    70,
-                    70
-                )
-            )
-
-            sessionStatusText.text =
-                "● Waktu habis"
-
+            expireTableSession(tableNumber)
             return
         }
 
-        if (remaining <= 300_000L) {
-            remainingTimeText.setTextColor(
-                Color.rgb(
-                    110,
-                    92,
-                    92
+        sessionTimer?.cancel()
+        sessionTimer = object : CountDownTimer(remaining, 1000L) {
+            override fun onTick(millisUntilFinished: Long) {
+                val current = maxOf(
+                    0L,
+                    endTime - System.currentTimeMillis()
                 )
-            )
-
-            sessionStatusText.text =
-                "● Sisa waktu kurang dari 5 menit"
-
-        } else {
-            remainingTimeText.setTextColor(
-                Color.rgb(
-                    45,
-                    52,
-                    64
-                )
-            )
-
-            sessionStatusText.text =
-                "● Sesi aktif"
-        }
-    }
-
-    private fun selectedPsKey(): String {
-
-        return when (
-            psTypeSpinner.selectedItem?.toString()?.uppercase()
-        ) {
-            "PS3" -> "ps3"
-            "PS4" -> "ps4"
-            else -> "ps5"
-        }
-    }
-
-    private fun loadSelectedPsSettings() {
-
-        val key =
-            selectedPsKey()
-
-        val defaultName =
-            when (key) {
-                "ps3" -> "PS3"
-                "ps4" -> "PS4"
-                else -> "PS5"
+                remainingText.text = formatTime(current)
+                updateTimerAppearance(remainingText, statusText, current)
             }
 
-        val defaultDuration =
-            preferences.getInt(
-                "${key}_duration_minutes",
-                60
-            )
-
-        val defaultPrice =
-            preferences.getLong(
-                "${key}_price",
-                when (key) {
-                    "ps3" -> 8_000L
-                    "ps4" -> 10_000L
-                    else -> 15_000L
-                }
-            )
-
-        psTypeInput.setText(
-            preferences.getString(
-                "${key}_name",
-                defaultName
-            ) ?: defaultName
-        )
-
-        durationInput.setText(
-            defaultDuration.toString()
-        )
-
-        priceInput.setText(
-            defaultPrice.toString()
-        )
-
-        addDurationInput.setText(
-            preferences.getInt(
-                "${key}_add_duration_minutes",
-                30
-            ).toString()
-        )
-
-        addPriceInput.setText(
-            preferences.getLong(
-                "${key}_add_price",
-                5_000L
-            ).toString()
-        )
+            override fun onFinish() {
+                remainingText.text = "00:00:00"
+                expireTableSession(tableNumber)
+            }
+        }.start()
     }
 
-    private fun saveSessionSettings() {
+    private fun expireTableSession(tableNumber: Int) {
+        sessionTimer?.cancel()
+        sessionTimer = null
 
-        val key =
-            selectedPsKey()
-
-        val psType =
-            psTypeInput.text
-                .toString()
-                .trim()
-                .ifEmpty {
-                    key.uppercase()
-                }
-
-        val durationMinutes =
-            durationInput.text
-                .toString()
-                .trim()
-                .toLongOrNull()
-                ?.coerceAtLeast(1L)
-                ?: 60L
-
-        val price =
-            priceInput.text
-                .toString()
-                .replace(".", "")
-                .replace(",", "")
-                .trim()
-                .toLongOrNull()
-                ?.coerceAtLeast(0L)
-                ?: 10_000L
-
-        val addMinutes =
-            addDurationInput.text
-                .toString()
-                .trim()
-                .toLongOrNull()
-                ?.coerceAtLeast(1L)
-                ?: 30L
-
-        val addPrice =
-            addPriceInput.text
-                .toString()
-                .replace(".", "")
-                .replace(",", "")
-                .trim()
-                .toLongOrNull()
-                ?.coerceAtLeast(0L)
-                ?: 5_000L
+        sendCommandToTable(tableNumber, "STOP")
 
         preferences.edit()
-            .putString(
-                "${key}_name",
-                psType
-            )
-            .putInt(
-                "${key}_duration_minutes",
-                durationMinutes.toInt()
-            )
-            .putLong(
-                "${key}_price",
-                price
-            )
-            .putInt(
-                "${key}_add_duration_minutes",
-                addMinutes.toInt()
-            )
-            .putLong(
-                "${key}_add_price",
-                addPrice
-            )
-            .putString(
-                "ps_type",
-                psType
-            )
-            .putInt(
-                "session_duration_minutes",
-                durationMinutes.toInt()
-            )
-            .putLong(
-                "session_price",
-                price
-            )
-            .putInt(
-                "add_duration_minutes",
-                addMinutes.toInt()
-            )
-            .putLong(
-                "add_price",
-                addPrice
-            )
+            .remove(tableKey(tableNumber, "session_end_time"))
+            .remove(tableKey(tableNumber, "session_price"))
+            .remove(tableKey(tableNumber, "paused_remaining"))
+            .putBoolean(tableKey(tableNumber, "active"), false)
+            .putBoolean(tableKey(tableNumber, "paused"), false)
             .apply()
 
-        statusText.text =
-            "● Pengaturan ${key.uppercase()} tersimpan"
+        if (screen == Screen.TABLE && selectedTable == tableNumber) {
+            sessionPrice = 0L
+            pausedRemainingMillis = 0L
+            isPaused = false
+            buildTableScreen()
+        } else {
+            buildHomeScreen()
+        }
     }
 
-    private fun formatTime(
-        millis: Long
-    ): String {
+    private fun updateTimerAppearance(
+        remainingText: TextView,
+        statusText: TextView,
+        remaining: Long
+    ) {
+        if (remaining <= 300_000L) {
+            remainingText.setTextColor(Color.rgb(135, 92, 92))
+            statusText.text = "● Sisa waktu kurang dari 5 menit"
+        } else {
+            remainingText.setTextColor(Color.rgb(55, 63, 75))
+            statusText.text = "● Sesi aktif"
+        }
+    }
 
-        val totalSeconds =
-            millis / 1000L
+    private fun restoreTableSession(tableNumber: Int) {
+        sessionPrice = preferences.getLong(
+            tableKey(tableNumber, "session_price"),
+            0L
+        )
+        isPaused = preferences.getBoolean(
+            tableKey(tableNumber, "paused"),
+            false
+        )
+        pausedRemainingMillis = preferences.getLong(
+            tableKey(tableNumber, "paused_remaining"),
+            0L
+        )
 
-        val hours =
-            totalSeconds / 3600L
+        if (isPaused) return
 
-        val minutes =
-            (totalSeconds % 3600L) / 60L
+        val endTime = preferences.getLong(
+            tableKey(tableNumber, "session_end_time"),
+            0L
+        )
 
-        val seconds =
-            totalSeconds % 60L
+        if (endTime > 0L && endTime <= System.currentTimeMillis()) {
+            expireTableSession(tableNumber)
+        }
+    }
 
+    private fun isCurrentTableActive(): Boolean =
+        preferences.getBoolean(
+            tableKey(selectedTable, "active"),
+            false
+        ) && !isPaused
+
+    private fun currentTableRemaining(): Long {
+        return if (isPaused) {
+            pausedRemainingMillis
+        } else {
+            maxOf(
+                0L,
+                preferences.getLong(
+                    tableKey(selectedTable, "session_end_time"),
+                    0L
+                ) - System.currentTimeMillis()
+            )
+        }
+    }
+
+    private fun isTableActive(tableNumber: Int): Boolean {
+        if (preferences.getBoolean(tableKey(tableNumber, "paused"), false)) {
+            return false
+        }
+        return preferences.getBoolean(
+            tableKey(tableNumber, "active"),
+            false
+        ) && preferences.getLong(
+            tableKey(tableNumber, "session_end_time"),
+            0L
+        ) > System.currentTimeMillis()
+    }
+
+    private fun isTablePaused(tableNumber: Int): Boolean =
+        preferences.getBoolean(tableKey(tableNumber, "paused"), false)
+
+    private fun getTableRemaining(tableNumber: Int): Long {
+        return if (isTablePaused(tableNumber)) {
+            preferences.getLong(
+                tableKey(tableNumber, "paused_remaining"),
+                0L
+            )
+        } else {
+            maxOf(
+                0L,
+                preferences.getLong(
+                    tableKey(tableNumber, "session_end_time"),
+                    0L
+                ) - System.currentTimeMillis()
+            )
+        }
+    }
+
+    private fun countActiveTables(): Int {
+        var count = 0
+        for (table in 1..TABLE_COUNT) {
+            if (isTableActive(table) || isTablePaused(table)) count++
+        }
+        return count
+    }
+
+    private fun buildPsSettingsScreen() {
+        buildBase("Pengaturan PS", "Atur nama, durasi dasar dan harga setiap jenis PS")
+
+        val spinner = Spinner(this)
+        spinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            PS_TYPES
+        )
+
+        root.addView(spinner, matchParentWrapContent())
+
+        val nameInput = createInput("Nama")
+        val durationInput = createNumberInput("Durasi dalam menit")
+        val priceInput = createNumberInput("Harga dalam rupiah")
+
+        root.addView(nameInput, matchParentWrapContent())
+        root.addView(durationInput, matchParentWrapContent())
+        root.addView(priceInput, matchParentWrapContent())
+
+        fun load() {
+            val type = PS_TYPES[spinner.selectedItemPosition]
+            nameInput.setText(getPsName(type))
+            durationInput.setText(getPsDuration(type).toString())
+            priceInput.setText(getPsPrice(type).toString())
+        }
+
+        spinner.setSelection(0)
+        load()
+
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                load()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
+        val save = createPrimaryButton("SIMPAN")
+        save.setOnClickListener {
+            val type = PS_TYPES[spinner.selectedItemPosition]
+            val duration = durationInput.text.toString()
+                .trim().toLongOrNull()?.coerceAtLeast(1L) ?: 60L
+            val price = parseNominal(priceInput.text.toString())
+
+            preferences.edit()
+                .putString(psKey(type, "name"), nameInput.text.toString().trim().ifEmpty { type })
+                .putInt(psKey(type, "duration"), duration.toInt())
+                .putLong(psKey(type, "price"), price)
+                .apply()
+
+            showToast("Pengaturan $type tersimpan")
+        }
+        root.addView(save, matchParentButton())
+    }
+
+    private fun buildTableSettingsScreen() {
+        buildBase("Pengaturan Meja", "Tentukan PS dan IP Android TV untuk setiap meja")
+
+        val tableSpinner = Spinner(this)
+        tableSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            (1..TABLE_COUNT).map { String.format(Locale.US, "Meja %02d", it) }
+        )
+        root.addView(tableSpinner, matchParentWrapContent())
+
+        val psSpinner = Spinner(this)
+        psSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            PS_TYPES
+        )
+        root.addView(psSpinner, matchParentWrapContent())
+
+        val ipInput = createInput("IP Android TV, contoh 192.168.1.20")
+        root.addView(ipInput, matchParentWrapContent())
+
+        fun load() {
+            val table = tableSpinner.selectedItemPosition + 1
+            val ps = getTablePsType(table)
+            psSpinner.setSelection(PS_TYPES.indexOf(ps).coerceAtLeast(0))
+            ipInput.setText(getTableIp(table))
+        }
+
+        load()
+
+        tableSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                load()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
+        val save = createPrimaryButton("SIMPAN")
+        save.setOnClickListener {
+            val table = tableSpinner.selectedItemPosition + 1
+            val ps = PS_TYPES[psSpinner.selectedItemPosition]
+            val ip = ipInput.text.toString().trim()
+
+            preferences.edit()
+                .putString(tableKey(table, "ps_type"), ps)
+                .putString(tableKey(table, "tv_ip"), ip)
+                .apply()
+
+            showToast(String.format(Locale.US, "Meja %02d tersimpan", table))
+        }
+        root.addView(save, matchParentButton())
+    }
+
+    private fun buildTvSettingsScreen() {
+        buildBase("Pengaturan Tampilan TV", "Pesan yang ditampilkan saat waktu sesi habis")
+
+        val tableSpinner = Spinner(this)
+        tableSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            (1..TABLE_COUNT).map { String.format(Locale.US, "Meja %02d", it) }
+        )
+        root.addView(tableSpinner, matchParentWrapContent())
+
+        val titleInput = createInput("Judul, contoh WAKTU HABIS")
+        val messageInput = createInput("Pesan, contoh Silakan ke kasir")
+        val billInput = createInput("Tagihan")
+
+        root.addView(titleInput, matchParentWrapContent())
+        root.addView(messageInput, matchParentWrapContent())
+        root.addView(billInput, matchParentWrapContent())
+
+        val save = createPrimaryButton("SIMPAN KE TV")
+        save.setOnClickListener {
+            val table = tableSpinner.selectedItemPosition + 1
+            val title = titleInput.text.toString().trim()
+            val message = messageInput.text.toString().trim()
+            val bill = billInput.text.toString().trim()
+
+            if (title.isNotEmpty()) sendCommandToTable(table, "SET_TITLE:$title")
+            if (message.isNotEmpty()) sendCommandToTable(table, "SET_MESSAGE:$message")
+            if (bill.isNotEmpty()) sendCommandToTable(table, "SET_BILL:$bill")
+            else sendCommandToTable(table, "CLEAR_BILL")
+
+            showToast("Tampilan TV meja ${String.format(Locale.US, "%02d", table)} dikirim")
+        }
+        root.addView(save, matchParentButton())
+    }
+
+    private fun sendCommandToTable(tableNumber: Int, command: String) {
+        val host = getTableIp(tableNumber)
+        if (host.isBlank()) {
+            showToast("IP TV Meja ${String.format(Locale.US, "%02d", tableNumber)} belum diatur")
+            return
+        }
+
+        executor.execute {
+            try {
+                Socket(host, 8787).use { socket ->
+                    PrintWriter(socket.getOutputStream(), true).use { writer ->
+                        writer.println(command)
+                        writer.flush()
+                    }
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    showToast("Gagal terhubung ke TV meja ${String.format(Locale.US, "%02d", tableNumber)}")
+                }
+            }
+        }
+    }
+
+    private fun getTablePsType(tableNumber: Int): String =
+        preferences.getString(
+            tableKey(tableNumber, "ps_type"),
+            "PS3"
+        ) ?: "PS3"
+
+    private fun getTableIp(tableNumber: Int): String =
+        preferences.getString(
+            tableKey(tableNumber, "tv_ip"),
+            ""
+        ) ?: ""
+
+    private fun getPsName(type: String): String =
+        preferences.getString(
+            psKey(type, "name"),
+            type
+        ) ?: type
+
+    private fun getPsDuration(type: String): Long =
+        preferences.getInt(
+            psKey(type, "duration"),
+            60
+        ).toLong().coerceAtLeast(1L)
+
+    private fun getPsPrice(type: String): Long {
+        val default = when (type) {
+            "PS3" -> 4_000L
+            "PS4" -> 5_000L
+            else -> 8_000L
+        }
+        return preferences.getLong(
+            psKey(type, "price"),
+            default
+        ).coerceAtLeast(0L)
+    }
+
+    private fun psKey(type: String, field: String): String =
+        "ps_${type.lowercase(Locale.US)}_$field"
+
+    private fun tableKey(tableNumber: Int, field: String): String =
+        "table_${tableNumber}_$field"
+
+    private fun parseNominal(value: String): Long =
+        value.replace(".", "")
+            .replace(",", "")
+            .replace("Rp", "", ignoreCase = true)
+            .trim()
+            .toLongOrNull()
+            ?.coerceAtLeast(0L)
+            ?: 0L
+
+    private fun formatTime(millis: Long): String {
+        val totalSeconds = millis.coerceAtLeast(0L) / 1000L
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
         return String.format(
+            Locale.US,
             "%02d:%02d:%02d",
             hours,
             minutes,
@@ -1550,213 +976,129 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun formatRupiah(
-        value: Long
-    ): String {
-
+    private fun formatRupiah(value: Long): String {
         return String.format(
+            Locale.US,
             "Rp %,d",
             value
-        ).replace(
-            ",",
-            "."
-        )
+        ).replace(",", ".")
     }
 
-    private fun sendDisplaySettings() {
-
-        val title =
-            titleInput.text
-                .toString()
-                .trim()
-
-        val message =
-            messageInput.text
-                .toString()
-                .trim()
-
-        val bill =
-            billInput.text
-                .toString()
-                .trim()
-
-        if (
-            title.isNotEmpty()
-        ) {
-
-            sendCommand(
-                "SET_TITLE:$title"
-            )
-        }
-
-        if (
-            message.isNotEmpty()
-        ) {
-
-            sendCommand(
-                "SET_MESSAGE:$message"
-            )
-        }
-
-        if (
-            bill.isNotEmpty()
-        ) {
-
-            sendCommand(
-                "SET_BILL:$bill"
-            )
-
-        } else {
-
-            sendCommand(
-                "CLEAR_BILL"
-            )
-        }
-    }
-
-    private fun sendCommand(
-        command: String
-    ) {
-
-        val host =
-            ipAddress.text
-                .toString()
-                .trim()
-
-        if (
-            host.isEmpty()
-        ) {
-
-            statusText.text =
-                "● Masukkan IP TV"
-
-            return
-        }
-
-        statusText.text =
-            "● Mengirim perintah..."
-
-        executor.execute {
-
-            try {
-
-                Socket(
-                    host,
-                    8787
-                ).use { socket ->
-
-                    val writer =
-                        PrintWriter(
-                            socket.getOutputStream(),
-                            true
-                        )
-
-                    writer.println(
-                        command
-                    )
-
-                    writer.flush()
-                }
-
-                runOnUiThread {
-
-                    statusText.text =
-                        "● TV terhubung"
-                }
-
-            } catch (_: Exception) {
-
-                runOnUiThread {
-
-                    statusText.text =
-                        "● Gagal terhubung ke TV"
-                }
+    private fun createInput(hintText: String): EditText {
+        return EditText(this).apply {
+            hint = hintText
+            textSize = 15f
+            setSingleLine(true)
+            setTextColor(Color.rgb(45, 52, 64))
+            setHintTextColor(Color.rgb(125, 132, 143))
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setBackgroundColor(Color.WHITE)
+            minHeight = dp(52)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(58)
+            ).apply {
+                topMargin = dp(7)
+                bottomMargin = dp(7)
             }
         }
     }
 
-    private fun addSectionTitle(
-        root: LinearLayout,
-        textValue: String
-    ) {
+    private fun createNumberInput(hintText: String): EditText =
+        createInput(hintText).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
 
-        val sectionTitle =
-            TextView(this).apply {
-
-                text =
-                    textValue
-
-                textSize = 17f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.rgb(
-                        50,
-                        58,
-                        70
-                    )
-                )
-
-                setPadding(
-                    dp(2),
-                    dp(16),
-                    dp(2),
-                    dp(9)
-                )
-            }
-
-        root.addView(
-            sectionTitle,
-            matchParentWrapContent()
-        )
+    private fun createSoftButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(55, 63, 75))
+            setBackgroundColor(Color.rgb(232, 236, 241))
+            isAllCaps = false
+            minHeight = dp(52)
+            minimumHeight = dp(52)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            includeFontPadding = true
+        }
     }
 
-    private fun matchParentWrapContent():
-        LinearLayout.LayoutParams {
+    private fun createPrimaryButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(70, 78, 92))
+            isAllCaps = false
+            minHeight = dp(58)
+            minimumHeight = dp(58)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+        }
+    }
 
-        return LinearLayout.LayoutParams(
+    private fun createDangerButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(90, 70, 70))
+            setBackgroundColor(Color.rgb(242, 232, 232))
+            isAllCaps = false
+            minHeight = dp(58)
+            minimumHeight = dp(58)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+        }
+    }
+
+    private fun addSectionTitle(root: LinearLayout, textValue: String) {
+        root.addView(TextView(this).apply {
+            text = textValue
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(50, 58, 70))
+            setPadding(dp(2), dp(18), dp(2), dp(8))
+        }, matchParentWrapContent())
+    }
+
+    private fun matchParentWrapContent(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-    }
 
-    private fun matchParentButton():
-        LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
+    private fun matchParentButton(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(58)
         ).apply {
+            topMargin = dp(8)
+        }
 
-            topMargin =
-                dp(8)
+    private fun showToast(message: String) {
+        runOnUiThread {
+            android.widget.Toast.makeText(
+                this,
+                message,
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     override fun onPause() {
-
-        preferences.edit()
-            .putString(
-                "tv_ip",
-                ipAddress.text
-                    .toString()
-                    .trim()
-            )
-            .apply()
-
         super.onPause()
     }
 
     override fun onDestroy() {
-
         sessionTimer?.cancel()
-
         sessionTimer = null
-
         executor.shutdownNow()
-
         super.onDestroy()
+    }
+
+    companion object {
+        private const val TABLE_COUNT = 10
+        private val PS_TYPES = arrayOf("PS3", "PS4", "PS5")
     }
 }
