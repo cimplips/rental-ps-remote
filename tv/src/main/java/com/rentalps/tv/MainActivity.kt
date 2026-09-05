@@ -46,7 +46,7 @@ class MainActivity : Activity() {
 
     private var timerOverlayUntilMillis = 0L
 
-    private val windowManager by lazy {
+    private val tvWindowManager by lazy {
         getSystemService(WINDOW_SERVICE) as WindowManager
     }
 
@@ -698,7 +698,7 @@ class MainActivity : Activity() {
                     Settings.canDrawOverlays(this)
                 ) {
                     try {
-                        windowManager.addView(
+                        tvWindowManager.addView(
                             timerOverlay,
                             params
                         )
@@ -875,7 +875,7 @@ class MainActivity : Activity() {
                     }
 
                 try {
-                    windowManager.addView(
+                    tvWindowManager.addView(
                         content,
                         params
                     )
@@ -925,7 +925,7 @@ class MainActivity : Activity() {
                     if (view.parent === root) {
                         root.removeView(view)
                     } else {
-                        windowManager.removeView(view)
+                        tvWindowManager.removeView(view)
                     }
                 }
             } catch (_: Exception) {
@@ -933,7 +933,7 @@ class MainActivity : Activity() {
                     root.removeView(view)
                 } catch (_: Exception) {
                     try {
-                        windowManager.removeView(view)
+                        tvWindowManager.removeView(view)
                     } catch (_: Exception) {
                     }
                 }
@@ -1139,7 +1139,7 @@ class MainActivity : Activity() {
                 if (it.parent === root) {
                     root.removeView(it)
                 } else if (it.parent != null) {
-                    windowManager.removeView(it)
+                    tvWindowManager.removeView(it)
                 }
             }
         } catch (_: Exception) {
