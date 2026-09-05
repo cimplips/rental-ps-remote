@@ -12,8 +12,6 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.net.Socket
 import java.util.concurrent.Executors
@@ -39,13 +37,6 @@ class MainActivity : Activity() {
     private var remainingMillis = 0L
 
     private var sessionPrice = 0L
-
-    /*
-     * Waktu berakhir sesi yang diberikan TV.
-     *
-     * TV menjadi sumber waktu utama.
-     */
-    private var tvSessionEndTimeMillis = 0L
 
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -76,6 +67,7 @@ class MainActivity : Activity() {
                         247,
                         250
                     )
+
                 )
 
                 isFillViewport = true
@@ -245,7 +237,9 @@ class MainActivity : Activity() {
 
         connectionButton.setOnClickListener {
 
-            requestTvStatus()
+            sendCommand(
+                "PING"
+            )
         }
 
         root.addView(
@@ -448,15 +442,12 @@ class MainActivity : Activity() {
                 "START:3600"
             )
 
-            /*
-             * Setelah START dikirim,
-             * ambil status dari TV agar HP
-             * memakai waktu akhir yang sama.
-             */
-            requestTvStatus()
+            startLocalTimer(
+                3_600_000L
+            )
 
             sessionStatusText.text =
-                "● Mengaktifkan sesi"
+                "● Sesi aktif"
 
             sessionPriceText.text =
                 "Rp 10.000"
@@ -482,14 +473,23 @@ class MainActivity : Activity() {
                 "ADD:1800"
             )
 
-            /*
-             * Jangan menambah timer lokal
-             * secara manual.
-             *
-             * Setelah TV menerima ADD,
-             * baca kembali waktu akhir dari TV.
-             */
-            requestTvStatus()
+            if (
+                remainingMillis > 0L
+            ) {
+
+                remainingMillis +=
+                    1_800_000L
+
+                restartLocalTimer(
+                    remainingMillis
+                )
+
+            } else {
+
+                startLocalTimer(
+                    1_800_000L
+                )
+            }
 
             sessionPrice +=
                 5_000L
@@ -500,7 +500,7 @@ class MainActivity : Activity() {
                 )
 
             sessionStatusText.text =
-                "● Memperbarui sesi"
+                "● Sesi aktif"
         }
 
         sessionCard.addView(
@@ -524,9 +524,6 @@ class MainActivity : Activity() {
             )
 
             stopLocalTimer()
-
-            tvSessionEndTimeMillis =
-                0L
 
             sessionStatusText.text =
                 "● Sesi selesai"
@@ -873,41 +870,18 @@ class MainActivity : Activity() {
         }
     }
 
-    /*
-     * Memulai timer HP berdasarkan waktu akhir TV.
-     */
-    private fun startTimerFromTvEndTime(
-        endTimeMillis: Long
+    private fun startLocalTimer(
+        durationMillis: Long
     ) {
-
-        val remaining =
-            endTimeMillis -
-                System.currentTimeMillis()
-
-        if (remaining <= 0L) {
-
-            stopLocalTimer()
-
-            tvSessionEndTimeMillis =
-                0L
-
-            remainingTimeText.text =
-                "00:00:00"
-
-            sessionStatusText.text =
-                "● Waktu habis"
-
-            return
-        }
-
-        tvSessionEndTimeMillis =
-            endTimeMillis
 
         sessionTimer?.cancel()
 
+        remainingMillis =
+            durationMillis
+
         sessionTimer =
             object : CountDownTimer(
-                remaining,
+                durationMillis,
                 1000L
             ) {
 
@@ -915,37 +889,13 @@ class MainActivity : Activity() {
                     millisUntilFinished: Long
                 ) {
 
-                    /*
-                     * Hitung ulang dari endTime TV,
-                     * bukan dari akumulasi tick.
-                     */
-                    val currentRemaining =
-                        tvSessionEndTimeMillis -
-                            System.currentTimeMillis()
-
-                    if (
-                        currentRemaining <= 0L
-                    ) {
-
-                        remainingMillis =
-                            0L
-
-                        remainingTimeText.text =
-                            "00:00:00"
-
-                        return
-                    }
-
                     remainingMillis =
-                        currentRemaining
+                        millisUntilFinished
 
                     remainingTimeText.text =
                         formatTime(
-                            currentRemaining
+                            millisUntilFinished
                         )
-
-                    sessionStatusText.text =
-                        "● Sesi aktif"
                 }
 
                 override fun onFinish() {
@@ -960,28 +910,9 @@ class MainActivity : Activity() {
                         "● Waktu habis"
 
                     sessionTimer = null
-
-                    /*
-                     * Cek ulang ke TV setelah timer
-                     * selesai agar status HP benar-benar
-                     * mengikuti TV.
-                     */
-                    requestTvStatus()
                 }
+
             }.start()
-    }
-
-    private fun startLocalTimer(
-        durationMillis: Long
-    ) {
-
-        val endTime =
-            System.currentTimeMillis() +
-                durationMillis
-
-        startTimerFromTvEndTime(
-            endTime
-        )
     }
 
     private fun restartLocalTimer(
@@ -1008,8 +939,7 @@ class MainActivity : Activity() {
     ): String {
 
         val totalSeconds =
-            millis.coerceAtLeast(0L) /
-                1000L
+            millis / 1000L
 
         val hours =
             totalSeconds / 3600L
@@ -1089,185 +1019,6 @@ class MainActivity : Activity() {
             sendCommand(
                 "CLEAR_BILL"
             )
-        }
-    }
-
-    /*
-     * Meminta STATUS langsung dari TV.
-     *
-     * Format balasan:
-     *
-     * STATUS|ACTIVE|<endTimeMillis>
-     *
-     * atau:
-     *
-     * STATUS|IDLE|0
-     */
-    private fun requestTvStatus() {
-
-        val host =
-            ipAddress.text
-                .toString()
-                .trim()
-
-        if (
-            host.isEmpty()
-        ) {
-
-            runOnUiThread {
-
-                statusText.text =
-                    "● Masukkan IP TV"
-            }
-
-            return
-        }
-
-        executor.execute {
-
-            try {
-
-                Socket(
-                    host,
-                    8787
-                ).use { socket ->
-
-                    socket.soTimeout =
-                        5000
-
-                    val writer =
-                        PrintWriter(
-                            socket.getOutputStream(),
-                            true
-                        )
-
-                    val reader =
-                        BufferedReader(
-                            InputStreamReader(
-                                socket.getInputStream()
-                            )
-                        )
-
-                    writer.println(
-                        "STATUS"
-                    )
-
-                    writer.flush()
-
-                    val response =
-                        reader.readLine()
-                            ?.trim()
-                            ?: ""
-
-                    runOnUiThread {
-
-                        handleTvStatusResponse(
-                            response
-                        )
-                    }
-                }
-
-            } catch (_: Exception) {
-
-                runOnUiThread {
-
-                    statusText.text =
-                        "● Gagal terhubung ke TV"
-                }
-            }
-        }
-    }
-
-    private fun handleTvStatusResponse(
-        response: String
-    ) {
-
-        if (
-            response.isEmpty()
-        ) {
-
-            statusText.text =
-                "● TV tidak memberi status"
-
-            return
-        }
-
-        val parts =
-            response.split(
-                "|"
-            )
-
-        if (
-            parts.size < 3 ||
-            parts[0] != "STATUS"
-        ) {
-
-            statusText.text =
-                "● Status TV tidak dikenali"
-
-            return
-        }
-
-        val state =
-            parts[1]
-
-        val endTime =
-            parts[2]
-                .toLongOrNull()
-                ?: 0L
-
-        statusText.text =
-            "● TV terhubung"
-
-        when (state) {
-
-            "ACTIVE" -> {
-
-                if (
-                    endTime > System.currentTimeMillis()
-                ) {
-
-                    startTimerFromTvEndTime(
-                        endTime
-                    )
-
-                } else {
-
-                    stopLocalTimer()
-
-                    remainingTimeText.text =
-                        "00:00:00"
-
-                    sessionStatusText.text =
-                        "● Waktu habis"
-                }
-            }
-
-            "IDLE" -> {
-
-                stopLocalTimer()
-
-                tvSessionEndTimeMillis =
-                    0L
-
-                remainingTimeText.text =
-                    "00:00:00"
-
-                sessionStatusText.text =
-                    "● Sesi selesai"
-
-                sessionPriceText.text =
-                    "Rp 0"
-
-                sessionPrice =
-                    0L
-            }
-
-            else -> {
-
-                statusText.text =
-                    "● Status TV tidak dikenali"
-            }
         }
     }
 
