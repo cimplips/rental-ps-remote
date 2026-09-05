@@ -31,11 +31,11 @@ class MainActivity : Activity() {
 
         hideSystemBars()
         createScreen()
-
         startTvServer()
     }
 
     private fun hideSystemBars() {
+
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -54,7 +54,14 @@ class MainActivity : Activity() {
         timerText = TextView(this).apply {
             text = ""
             textSize = 14f
-            setTextColor(Color.argb(90, 255, 255, 255))
+            setTextColor(
+                Color.argb(
+                    90,
+                    255,
+                    255,
+                    255
+                )
+            )
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
@@ -63,8 +70,15 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
+
             gravity = Gravity.BOTTOM or Gravity.END
-            setMargins(0, 0, 24, 18)
+
+            setMargins(
+                0,
+                0,
+                24,
+                18
+            )
         }
 
         root.addView(
@@ -73,10 +87,15 @@ class MainActivity : Activity() {
         )
 
         expiredText = TextView(this).apply {
+
             text = "WAKTU HABIS\n\nSilakan ke kasir"
+
             textSize = 24f
+
             setTextColor(Color.WHITE)
+
             gravity = Gravity.CENTER
+
             visibility = View.VISIBLE
         }
 
@@ -110,14 +129,14 @@ class MainActivity : Activity() {
         when {
 
             command == "PING" -> {
-                // Digunakan HP untuk mengecek
-                // apakah TV dapat dihubungi.
+
+                // Tes koneksi.
             }
 
             command.startsWith("START:") -> {
 
                 val seconds = command
-                    .removePrefix("START:")
+                    .substringAfter("START:")
                     .toLongOrNull()
 
                 if (seconds != null && seconds > 0) {
@@ -131,7 +150,7 @@ class MainActivity : Activity() {
             command.startsWith("ADD:") -> {
 
                 val seconds = command
-                    .removePrefix("ADD:")
+                    .substringAfter("ADD:")
                     .toLongOrNull()
 
                 if (seconds != null && seconds > 0) {
@@ -155,7 +174,7 @@ class MainActivity : Activity() {
 
         expiredText.visibility = View.GONE
 
-        root.setBackgroundColor(Color.TRANSPARENT)
+        root.setBackgroundColor(Color.BLACK)
 
         countDownTimer = object : CountDownTimer(
             durationMillis,
@@ -169,91 +188,97 @@ class MainActivity : Activity() {
                 val totalSeconds =
                     millisUntilFinished / 1000
 
-                updateTimerDisplay(
-                    totalSeconds
+                val hours =
+                    totalSeconds / 3600
+
+                val minutes =
+                    (totalSeconds % 3600) / 60
+
+                val seconds =
+                    totalSeconds % 60
+
+                timerText.text = String.format(
+                    "%02d:%02d:%02d",
+                    hours,
+                    minutes,
+                    seconds
                 )
+
+                timerText.visibility =
+                    if (totalSeconds <= 300) {
+                        View.VISIBLE
+                    } else {
+                        View.GONE
+                    }
             }
 
             override fun onFinish() {
 
-                timerText.visibility =
-                    View.GONE
+                timerText.visibility = View.GONE
 
-                showExpiredScreen()
+                expiredText.visibility = View.VISIBLE
+
+                root.setBackgroundColor(
+                    Color.BLACK
+                )
             }
-
         }.start()
     }
 
-    private fun addTime(
-        additionalMillis: Long
-    ) {
+    private fun addTime(additionalMillis: Long) {
 
-        val currentRemaining =
-            currentRemainingMillis()
+        val currentText =
+            timerText.text.toString()
+
+        if (currentText.isEmpty()) {
+            startTimer(additionalMillis)
+            return
+        }
+
+        val parts =
+            currentText.split(":")
+
+        if (parts.size != 3) {
+            startTimer(additionalMillis)
+            return
+        }
+
+        val hours =
+            parts[0].toLongOrNull() ?: 0
+
+        val minutes =
+            parts[1].toLongOrNull() ?: 0
+
+        val seconds =
+            parts[2].toLongOrNull() ?: 0
+
+        val currentMillis =
+            (
+                hours * 3600 +
+                minutes * 60 +
+                seconds
+            ) * 1000L
 
         startTimer(
-            currentRemaining + additionalMillis
+            currentMillis + additionalMillis
         )
-    }
-
-    private fun currentRemainingMillis(): Long {
-
-        return 0L
     }
 
     private fun stopTimer() {
 
         countDownTimer?.cancel()
 
-        timerText.visibility =
-            View.GONE
+        countDownTimer = null
 
-        showExpiredScreen()
-    }
+        timerText.text = ""
 
-    private fun updateTimerDisplay(
-        totalSeconds: Long
-    ) {
+        timerText.visibility = View.GONE
 
-        val hours =
-            totalSeconds / 3600
-
-        val minutes =
-            (totalSeconds % 3600) / 60
-
-        val seconds =
-            totalSeconds % 60
-
-        timerText.text = String.format(
-            "%02d:%02d:%02d",
-            hours,
-            minutes,
-            seconds
-        )
-
-        timerText.visibility =
-            if (totalSeconds <= 300) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
-    }
-
-    private fun showExpiredScreen() {
-
-        timerText.visibility =
-            View.GONE
+        expiredText.visibility = View.VISIBLE
 
         root.setBackgroundColor(
             Color.BLACK
         )
-
-        expiredText.text =
-            "WAKTU HABIS\n\nSilakan ke kasir"
-
-        expiredText.visibility =
-            View.VISIBLE
     }
 
     override fun onDestroy() {
