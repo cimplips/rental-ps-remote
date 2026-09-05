@@ -8,7 +8,7 @@
         android:allowBackup="true"
         android:label="Rental PS"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RentalPS">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
             android:name=".MainActivity"
