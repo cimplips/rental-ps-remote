@@ -32,26 +32,21 @@ class MainActivity : Activity() {
     private var countDownTimer: CountDownTimer? = null
     private var tvServer: TvServer? = null
 
-    private var overlayView: View? = null
+    private var timerOverlayView: View? = null
+    private var blankOverlayView: View? = null
 
     private var titleText = "WAKTU HABIS"
     private var messageText = "Silakan ke kasir"
     private var billText = ""
 
-    private val timerHandler =
+    private val handler =
         Handler(Looper.getMainLooper())
 
-    private val hideTimerRunnable =
+    private var remainingMillis = 0L
+
+    private val hideTimerOverlayRunnable =
         Runnable {
-
-            if (
-                countDownTimer != null &&
-                timerText.visibility == View.VISIBLE
-            ) {
-
-                timerText.visibility =
-                    View.GONE
-            }
+            hideTimerOverlay()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,15 +209,12 @@ class MainActivity : Activity() {
                 )
             }
 
-        val expiredParams =
+        root.addView(
+            expiredText,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-
-        root.addView(
-            expiredText,
-            expiredParams
         )
 
         updateExpiredText()
@@ -252,7 +244,6 @@ class MainActivity : Activity() {
         }
 
         if (billText.isNotBlank()) {
-
             parts.add(
                 "Tagihan: $billText"
             )
@@ -288,7 +279,6 @@ class MainActivity : Activity() {
                         20,
                         20
                     )
-                )
 
                 visibility =
                     View.VISIBLE
@@ -378,12 +368,11 @@ class MainActivity : Activity() {
 
             try {
 
-                val intent =
+                startActivity(
                     Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION
                     )
-
-                startActivity(intent)
+                )
 
             } catch (_: Exception) {
             }
@@ -446,7 +435,7 @@ class MainActivity : Activity() {
 
                 updateExpiredText()
 
-                updateOverlayText()
+                updateBlankOverlayText()
             }
 
             command.startsWith(
@@ -464,7 +453,7 @@ class MainActivity : Activity() {
 
                 updateExpiredText()
 
-                updateOverlayText()
+                updateBlankOverlayText()
             }
 
             command.startsWith(
@@ -482,7 +471,7 @@ class MainActivity : Activity() {
 
                 updateExpiredText()
 
-                updateOverlayText()
+                updateBlankOverlayText()
             }
 
             command == "CLEAR_BILL" -> {
@@ -493,7 +482,7 @@ class MainActivity : Activity() {
 
                 updateExpiredText()
 
-                updateOverlayText()
+                updateBlankOverlayText()
             }
 
             command.startsWith(
@@ -559,11 +548,12 @@ class MainActivity : Activity() {
 
         countDownTimer?.cancel()
 
-        timerHandler.removeCallbacks(
-            hideTimerRunnable
+        handler.removeCallbacks(
+            hideTimerOverlayRunnable
         )
 
-        removeBlankOverlay()
+        remainingMillis =
+            durationMillis
 
         expiredText.visibility =
             View.GONE
@@ -573,11 +563,13 @@ class MainActivity : Activity() {
         )
 
         /*
-         * Timer langsung muncul
-         * ketika sesi dimulai.
+         * Timer selalu dibuat sebagai
+         * overlay agar tetap terlihat
+         * walaupun Activity di-Minimize.
          */
-        timerText.visibility =
-            View.VISIBLE
+        showTimerOverlay(
+            remainingMillis
+        )
 
         countDownTimer =
             object : CountDownTimer(
@@ -589,39 +581,50 @@ class MainActivity : Activity() {
                     millisUntilFinished: Long
                 ) {
 
-                    val totalSeconds =
-                        millisUntilFinished / 1000L
+                    remainingMillis =
+                        millisUntilFinished
 
-                    updateTimerText(
+                    val totalSeconds =
+                        millisUntilFinished /
+                            1000L
+
+                    /*
+                     * Update timer overlay.
+                     */
+                    updateTimerOverlayText(
                         totalSeconds
                     )
 
                     /*
-                     * Jika waktu sudah masuk
-                     * 5 menit terakhir, timer
-                     * harus selalu tampil.
+                     * Jika sudah masuk
+                     * 5 menit terakhir,
+                     * timer tetap tampil.
                      */
                     if (
                         totalSeconds <= 300L
                     ) {
 
-                        timerHandler.removeCallbacks(
-                            hideTimerRunnable
+                        handler.removeCallbacks(
+                            hideTimerOverlayRunnable
                         )
 
-                        timerText.visibility =
-                            View.VISIBLE
+                        showTimerOverlay(
+                            millisUntilFinished
+                        )
                     }
                 }
 
                 override fun onFinish() {
 
-                    timerHandler.removeCallbacks(
-                        hideTimerRunnable
+                    remainingMillis = 0L
+
+                    handler.removeCallbacks(
+                        hideTimerOverlayRunnable
                     )
 
-                    timerText.visibility =
-                        View.GONE
+                    hideTimerOverlay()
+
+                    timerText.text = ""
 
                     expiredText.visibility =
                         View.VISIBLE
@@ -637,15 +640,11 @@ class MainActivity : Activity() {
             }.start()
 
         /*
-         * Set timer awal selama 10 detik.
-         *
-         * Karena startTimer() juga dipakai
-         * oleh tombol Tambah 30 Menit,
-         * maka tombol tambah waktu akan
-         * mendapatkan perilaku yang sama.
+         * Timer awal hanya tampil
+         * selama 10 detik.
          */
-        timerHandler.postDelayed(
-            hideTimerRunnable,
+        handler.postDelayed(
+            hideTimerOverlayRunnable,
             10_000L
         )
     }
@@ -672,52 +671,220 @@ class MainActivity : Activity() {
             )
     }
 
+    private fun showTimerOverlay(
+        millis: Long
+    ) {
+
+        if (
+            !Settings.canDrawOverlays(this)
+        ) {
+            /*
+             * Jika izin overlay belum aktif,
+             * gunakan timer Activity sebagai
+             * fallback.
+             */
+            timerText.visibility =
+                View.VISIBLE
+
+            updateTimerText(
+                millis / 1000L
+            )
+
+            return
+        }
+
+        val totalSeconds =
+            millis / 1000L
+
+        val windowManager =
+            getSystemService(
+                WINDOW_SERVICE
+            ) as WindowManager
+
+        if (timerOverlayView == null) {
+
+            val overlay =
+                TextView(this).apply {
+
+                    tag =
+                        "timer_overlay_text"
+
+                    textSize = 14f
+
+                    setTextColor(
+                        Color.argb(
+                            110,
+                            255,
+                            255,
+                            255
+                        )
+                    )
+
+                    gravity =
+                        Gravity.CENTER
+
+                    setPadding(
+                        10,
+                        5,
+                        10,
+                        5
+                    )
+
+                    setBackgroundColor(
+                        Color.argb(
+                            35,
+                            255,
+                            255,
+                            255
+                        )
+                    )
+
+                    isFocusable = false
+
+                    isClickable = false
+
+                    text =
+                        formatTime(
+                            totalSeconds
+                        )
+                }
+
+            val params =
+                WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+
+                    gravity =
+                        Gravity.BOTTOM or
+                            Gravity.END
+
+                    x = 24
+
+                    y = 18
+                }
+
+            try {
+
+                windowManager.addView(
+                    overlay,
+                    params
+                )
+
+                timerOverlayView =
+                    overlay
+
+            } catch (_: Exception) {
+
+                timerText.visibility =
+                    View.VISIBLE
+
+                updateTimerText(
+                    totalSeconds
+                )
+
+                return
+            }
+
+        } else {
+
+            updateTimerOverlayText(
+                totalSeconds
+            )
+        }
+    }
+
+    private fun updateTimerOverlayText(
+        totalSeconds: Long
+    ) {
+
+        val view =
+            timerOverlayView ?: return
+
+        val textView =
+            view as? TextView
+
+        textView?.text =
+            formatTime(
+                totalSeconds
+            )
+    }
+
+    private fun formatTime(
+        totalSeconds: Long
+    ): String {
+
+        val hours =
+            totalSeconds / 3600L
+
+        val minutes =
+            (totalSeconds % 3600L) / 60L
+
+        val seconds =
+            totalSeconds % 60L
+
+        return String.format(
+            "%02d:%02d:%02d",
+            hours,
+            minutes,
+            seconds
+        )
+    }
+
+    private fun hideTimerOverlay() {
+
+        handler.removeCallbacks(
+            hideTimerOverlayRunnable
+        )
+
+        val view =
+            timerOverlayView
+
+        if (view != null) {
+
+            val windowManager =
+                getSystemService(
+                    WINDOW_SERVICE
+                ) as WindowManager
+
+            try {
+
+                windowManager.removeView(
+                    view
+                )
+
+            } catch (_: Exception) {
+            }
+
+            timerOverlayView = null
+        }
+
+        timerText.visibility =
+            View.GONE
+    }
+
     private fun addTime(
         additionalMillis: Long
     ) {
 
-        val currentText =
-            timerText.text.toString()
-
-        if (currentText.isEmpty()) {
-
-            startTimer(
-                additionalMillis
-            )
-
-            return
-        }
-
-        val parts =
-            currentText.split(":")
-
-        if (parts.size != 3) {
-
-            startTimer(
-                additionalMillis
-            )
-
-            return
-        }
-
-        val hours =
-            parts[0].toLongOrNull()
-                ?: 0L
-
-        val minutes =
-            parts[1].toLongOrNull()
-                ?: 0L
-
-        val seconds =
-            parts[2].toLongOrNull()
-                ?: 0L
-
         val currentMillis =
-            (
-                hours * 3600L +
-                    minutes * 60L +
-                    seconds
-                ) * 1000L
+            remainingMillis
+
+        if (
+            currentMillis <= 0L
+        ) {
+
+            startTimer(
+                additionalMillis
+            )
+
+            return
+        }
 
         startTimer(
             currentMillis +
@@ -731,9 +898,13 @@ class MainActivity : Activity() {
 
         countDownTimer = null
 
-        timerHandler.removeCallbacks(
-            hideTimerRunnable
+        remainingMillis = 0L
+
+        handler.removeCallbacks(
+            hideTimerOverlayRunnable
         )
+
+        hideTimerOverlay()
 
         timerText.text = ""
 
@@ -758,9 +929,9 @@ class MainActivity : Activity() {
             return
         }
 
-        if (overlayView != null) {
+        if (blankOverlayView != null) {
 
-            updateOverlayText()
+            updateBlankOverlayText()
 
             return
         }
@@ -843,17 +1014,17 @@ class MainActivity : Activity() {
                 params
             )
 
-            overlayView =
+            blankOverlayView =
                 overlayRoot
 
         } catch (_: Exception) {
         }
     }
 
-    private fun updateOverlayText() {
+    private fun updateBlankOverlayText() {
 
         val view =
-            overlayView ?: return
+            blankOverlayView ?: return
 
         val textView =
             view.findViewWithTag<TextView>(
@@ -867,7 +1038,7 @@ class MainActivity : Activity() {
     private fun removeBlankOverlay() {
 
         val view =
-            overlayView ?: return
+            blankOverlayView ?: return
 
         val windowManager =
             getSystemService(
@@ -883,16 +1054,20 @@ class MainActivity : Activity() {
         } catch (_: Exception) {
         }
 
-        overlayView = null
+        blankOverlayView = null
     }
 
     override fun onDestroy() {
 
         countDownTimer?.cancel()
 
-        timerHandler.removeCallbacks(
-            hideTimerRunnable
+        countDownTimer = null
+
+        handler.removeCallbacksAndMessages(
+            null
         )
+
+        hideTimerOverlay()
 
         removeBlankOverlay()
 
