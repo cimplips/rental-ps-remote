@@ -1,14 +1,19 @@
 package com.rentalps.tv
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 
 class MainActivity : Activity() {
@@ -16,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var timerText: TextView
     private lateinit var expiredText: TextView
+    private lateinit var controlPanel: LinearLayout
 
     private var countDownTimer: CountDownTimer? = null
     private var tvServer: TvServer? = null
@@ -54,6 +60,7 @@ class MainActivity : Activity() {
         timerText = TextView(this).apply {
             text = ""
             textSize = 14f
+
             setTextColor(
                 Color.argb(
                     90,
@@ -62,6 +69,7 @@ class MainActivity : Activity() {
                     255
                 )
             )
+
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
@@ -71,7 +79,8 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
 
-            gravity = Gravity.BOTTOM or Gravity.END
+            gravity =
+                Gravity.BOTTOM or Gravity.END
 
             setMargins(
                 0,
@@ -88,7 +97,8 @@ class MainActivity : Activity() {
 
         expiredText = TextView(this).apply {
 
-            text = "WAKTU HABIS\n\nSilakan ke kasir"
+            text =
+                "WAKTU HABIS\n\nSilakan ke kasir"
 
             textSize = 24f
 
@@ -99,17 +109,155 @@ class MainActivity : Activity() {
             visibility = View.VISIBLE
         }
 
-        val expiredParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
+        val expiredParams =
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
 
         root.addView(
             expiredText,
             expiredParams
         )
 
+        createControlPanel()
+
         setContentView(root)
+    }
+
+    private fun createControlPanel() {
+
+        controlPanel = LinearLayout(this).apply {
+
+            orientation = LinearLayout.HORIZONTAL
+
+            gravity = Gravity.CENTER
+
+            setPadding(
+                8,
+                8,
+                8,
+                8
+            )
+
+            setBackgroundColor(
+                Color.argb(
+                    150,
+                    20,
+                    20,
+                    20
+                )
+            )
+
+            visibility = View.VISIBLE
+        }
+
+        val settingsButton = Button(this).apply {
+
+            text = "⚙"
+
+            textSize = 18f
+
+            setOnClickListener {
+
+                openOverlaySettings()
+            }
+        }
+
+        val minimizeButton = Button(this).apply {
+
+            text = "−"
+
+            textSize = 22f
+
+            setOnClickListener {
+
+                minimizeApp()
+            }
+        }
+
+        controlPanel.addView(
+            settingsButton,
+            LinearLayout.LayoutParams(
+                64,
+                56
+            )
+        )
+
+        controlPanel.addView(
+            minimizeButton,
+            LinearLayout.LayoutParams(
+                64,
+                56
+            )
+        )
+
+        val panelParams =
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                gravity =
+                    Gravity.TOP or Gravity.END
+
+                setMargins(
+                    0,
+                    12,
+                    12,
+                    0
+                )
+            }
+
+        root.addView(
+            controlPanel,
+            panelParams
+        )
+    }
+
+    private fun openOverlaySettings() {
+
+        try {
+
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse(
+                    "package:$packageName"
+                )
+            )
+
+            startActivity(intent)
+
+        } catch (_: Exception) {
+
+            try {
+
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION
+                )
+
+                startActivity(intent)
+
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun minimizeApp() {
+
+        val intent = Intent(
+            Intent.ACTION_MAIN
+        ).apply {
+
+            addCategory(
+                Intent.CATEGORY_HOME
+            )
+
+            flags =
+                Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+
+        startActivity(intent)
     }
 
     private fun startTvServer() {
@@ -124,7 +272,9 @@ class MainActivity : Activity() {
         tvServer?.start()
     }
 
-    private fun handleCommand(command: String) {
+    private fun handleCommand(
+        command: String
+    ) {
 
         when {
 
@@ -135,11 +285,15 @@ class MainActivity : Activity() {
 
             command.startsWith("START:") -> {
 
-                val seconds = command
-                    .substringAfter("START:")
-                    .toLongOrNull()
+                val seconds =
+                    command
+                        .substringAfter("START:")
+                        .toLongOrNull()
 
-                if (seconds != null && seconds > 0) {
+                if (
+                    seconds != null &&
+                    seconds > 0
+                ) {
 
                     startTimer(
                         seconds * 1000L
@@ -149,11 +303,15 @@ class MainActivity : Activity() {
 
             command.startsWith("ADD:") -> {
 
-                val seconds = command
-                    .substringAfter("ADD:")
-                    .toLongOrNull()
+                val seconds =
+                    command
+                        .substringAfter("ADD:")
+                        .toLongOrNull()
 
-                if (seconds != null && seconds > 0) {
+                if (
+                    seconds != null &&
+                    seconds > 0
+                ) {
 
                     addTime(
                         seconds * 1000L
@@ -168,70 +326,87 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun startTimer(durationMillis: Long) {
+    private fun startTimer(
+        durationMillis: Long
+    ) {
 
         countDownTimer?.cancel()
 
-        expiredText.visibility = View.GONE
+        expiredText.visibility =
+            View.GONE
 
-        root.setBackgroundColor(Color.BLACK)
+        root.setBackgroundColor(
+            Color.BLACK
+        )
 
-        countDownTimer = object : CountDownTimer(
-            durationMillis,
-            1000
-        ) {
-
-            override fun onTick(
-                millisUntilFinished: Long
+        countDownTimer =
+            object : CountDownTimer(
+                durationMillis,
+                1000
             ) {
 
-                val totalSeconds =
-                    millisUntilFinished / 1000
+                override fun onTick(
+                    millisUntilFinished: Long
+                ) {
 
-                val hours =
-                    totalSeconds / 3600
+                    val totalSeconds =
+                        millisUntilFinished / 1000
 
-                val minutes =
-                    (totalSeconds % 3600) / 60
+                    val hours =
+                        totalSeconds / 3600
 
-                val seconds =
-                    totalSeconds % 60
+                    val minutes =
+                        (totalSeconds % 3600) / 60
 
-                timerText.text = String.format(
-                    "%02d:%02d:%02d",
-                    hours,
-                    minutes,
-                    seconds
-                )
+                    val seconds =
+                        totalSeconds % 60
 
-                timerText.visibility =
-                    if (totalSeconds <= 300) {
-                        View.VISIBLE
-                    } else {
+                    timerText.text =
+                        String.format(
+                            "%02d:%02d:%02d",
+                            hours,
+                            minutes,
+                            seconds
+                        )
+
+                    timerText.visibility =
+                        if (
+                            totalSeconds <= 300
+                        ) {
+                            View.VISIBLE
+                        } else {
+                            View.GONE
+                        }
+                }
+
+                override fun onFinish() {
+
+                    timerText.visibility =
                         View.GONE
-                    }
-            }
 
-            override fun onFinish() {
+                    expiredText.visibility =
+                        View.VISIBLE
 
-                timerText.visibility = View.GONE
-
-                expiredText.visibility = View.VISIBLE
-
-                root.setBackgroundColor(
-                    Color.BLACK
-                )
-            }
-        }.start()
+                    root.setBackgroundColor(
+                        Color.BLACK
+                    )
+                }
+            }.start()
     }
 
-    private fun addTime(additionalMillis: Long) {
+    private fun addTime(
+        additionalMillis: Long
+    ) {
 
         val currentText =
             timerText.text.toString()
 
         if (currentText.isEmpty()) {
-            startTimer(additionalMillis)
+
+            startTimer(
+                additionalMillis
+            )
+
             return
         }
 
@@ -239,7 +414,11 @@ class MainActivity : Activity() {
             currentText.split(":")
 
         if (parts.size != 3) {
-            startTimer(additionalMillis)
+
+            startTimer(
+                additionalMillis
+            )
+
             return
         }
 
@@ -260,7 +439,8 @@ class MainActivity : Activity() {
             ) * 1000L
 
         startTimer(
-            currentMillis + additionalMillis
+            currentMillis +
+                additionalMillis
         )
     }
 
@@ -272,9 +452,11 @@ class MainActivity : Activity() {
 
         timerText.text = ""
 
-        timerText.visibility = View.GONE
+        timerText.visibility =
+            View.GONE
 
-        expiredText.visibility = View.VISIBLE
+        expiredText.visibility =
+            View.VISIBLE
 
         root.setBackgroundColor(
             Color.BLACK
