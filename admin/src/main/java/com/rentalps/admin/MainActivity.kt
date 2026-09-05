@@ -36,7 +36,7 @@ class MainActivity : Activity() {
 
     private var remainingMillis = 0L
 
-    private var sessionPrice = 10_000L
+    private var sessionPrice = 0L
 
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -44,6 +44,16 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         buildUi()
+    }
+
+    private fun dp(
+        value: Int
+    ): Int {
+
+        return (
+            value *
+                resources.displayMetrics.density
+            ).toInt()
     }
 
     private fun buildUi() {
@@ -57,7 +67,10 @@ class MainActivity : Activity() {
                         247,
                         250
                     )
+
                 )
+
+                isFillViewport = true
             }
 
         val root =
@@ -67,10 +80,10 @@ class MainActivity : Activity() {
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    22,
-                    28,
-                    22,
-                    32
+                    dp(18),
+                    dp(24),
+                    dp(18),
+                    dp(32)
                 )
             }
 
@@ -122,9 +135,9 @@ class MainActivity : Activity() {
 
                 setPadding(
                     0,
-                    5,
+                    dp(5),
                     0,
-                    24
+                    dp(20)
                 )
             }
 
@@ -152,16 +165,35 @@ class MainActivity : Activity() {
 
                 textSize = 15f
 
+                setTextColor(
+                    Color.rgb(
+                        45,
+                        52,
+                        64
+                    )
+                )
+
+                setHintTextColor(
+                    Color.rgb(
+                        125,
+                        132,
+                        143
+                    )
+                )
+
                 setPadding(
-                    18,
-                    12,
-                    18,
-                    12
+                    dp(16),
+                    dp(10),
+                    dp(16),
+                    dp(10)
                 )
 
                 setBackgroundColor(
                     Color.WHITE
                 )
+
+                minHeight =
+                    dp(50)
             }
 
         root.addView(
@@ -186,10 +218,10 @@ class MainActivity : Activity() {
                 )
 
                 setPadding(
-                    4,
-                    10,
-                    4,
-                    10
+                    dp(4),
+                    dp(8),
+                    dp(4),
+                    dp(8)
                 )
             }
 
@@ -216,7 +248,7 @@ class MainActivity : Activity() {
         )
 
         /*
-         * SESSION CARD
+         * SESSION
          */
 
         addSectionTitle(
@@ -231,10 +263,10 @@ class MainActivity : Activity() {
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    22,
-                    20,
-                    22,
-                    20
+                    dp(18),
+                    dp(18),
+                    dp(18),
+                    dp(18)
                 )
 
                 setBackgroundColor(
@@ -270,7 +302,7 @@ class MainActivity : Activity() {
             TextView(this).apply {
 
                 text =
-                    "● Siap digunakan"
+                    "● Sesi selesai"
 
                 textSize = 13f
 
@@ -284,9 +316,9 @@ class MainActivity : Activity() {
 
                 setPadding(
                     0,
-                    5,
+                    dp(4),
                     0,
-                    12
+                    dp(8)
                 )
             }
 
@@ -321,9 +353,9 @@ class MainActivity : Activity() {
 
                 setPadding(
                     0,
-                    12,
+                    dp(8),
                     0,
-                    12
+                    dp(4)
                 )
             }
 
@@ -381,9 +413,9 @@ class MainActivity : Activity() {
 
                 setPadding(
                     0,
-                    14,
+                    dp(10),
                     0,
-                    14
+                    dp(8)
                 )
             }
 
@@ -391,6 +423,10 @@ class MainActivity : Activity() {
             sessionPriceText,
             matchParentWrapContent()
         )
+
+        /*
+         * MULAI
+         */
 
         val startButton =
             createPrimaryButton(
@@ -422,6 +458,10 @@ class MainActivity : Activity() {
             matchParentButton()
         )
 
+        /*
+         * TAMBAH
+         */
+
         val addButton =
             createSoftButton(
                 "+ Tambah 30 Menit  •  Rp 5.000"
@@ -433,7 +473,9 @@ class MainActivity : Activity() {
                 "ADD:1800"
             )
 
-            if (remainingMillis > 0L) {
+            if (
+                remainingMillis > 0L
+            ) {
 
                 remainingMillis +=
                     1_800_000L
@@ -465,6 +507,10 @@ class MainActivity : Activity() {
             addButton,
             matchParentButton()
         )
+
+        /*
+         * AKHIRI
+         */
 
         val stopButton =
             createDangerButton(
@@ -534,7 +580,8 @@ class MainActivity : Activity() {
             "Silakan ke kasir"
         )
 
-        messageInput.minLines = 2
+        messageInput.minLines =
+            2
 
         root.addView(
             messageInput,
@@ -551,6 +598,10 @@ class MainActivity : Activity() {
             matchParentWrapContent()
         )
 
+        /*
+         * SIMPAN
+         */
+
         val saveDisplayButton =
             createSoftButton(
                 "Simpan Tampilan ke TV"
@@ -565,6 +616,10 @@ class MainActivity : Activity() {
             saveDisplayButton,
             matchParentButton()
         )
+
+        /*
+         * HAPUS TAGIHAN
+         */
 
         val clearBillButton =
             createSoftButton(
@@ -612,10 +667,10 @@ class MainActivity : Activity() {
                 )
 
                 setPadding(
-                    4,
-                    24,
-                    4,
-                    8
+                    dp(4),
+                    dp(20),
+                    dp(4),
+                    dp(8)
                 )
             }
 
@@ -635,22 +690,40 @@ class MainActivity : Activity() {
 
         return EditText(this).apply {
 
-            hint = hintText
-
-            setSingleLine(false)
+            hint =
+                hintText
 
             textSize = 15f
 
+            setTextColor(
+                Color.rgb(
+                    45,
+                    52,
+                    64
+                )
+            )
+
+            setHintTextColor(
+                Color.rgb(
+                    125,
+                    132,
+                    143
+                )
+            )
+
             setPadding(
-                18,
-                12,
-                18,
-                12
+                dp(16),
+                dp(10),
+                dp(16),
+                dp(10)
             )
 
             setBackgroundColor(
                 Color.WHITE
             )
+
+            minHeight =
+                dp(50)
         }
     }
 
@@ -664,6 +737,9 @@ class MainActivity : Activity() {
                 textValue
 
             textSize = 14f
+
+            gravity =
+                Gravity.CENTER
 
             setTextColor(
                 Color.rgb(
@@ -682,6 +758,21 @@ class MainActivity : Activity() {
             )
 
             isAllCaps = false
+
+            minHeight =
+                dp(52)
+
+            minimumHeight =
+                dp(52)
+
+            setPadding(
+                dp(12),
+                dp(6),
+                dp(12),
+                dp(6)
+            )
+
+            includeFontPadding = true
         }
     }
 
@@ -696,6 +787,9 @@ class MainActivity : Activity() {
 
             textSize = 14f
 
+            gravity =
+                Gravity.CENTER
+
             setTextColor(
                 Color.WHITE
             )
@@ -709,6 +803,21 @@ class MainActivity : Activity() {
             )
 
             isAllCaps = false
+
+            minHeight =
+                dp(52)
+
+            minimumHeight =
+                dp(52)
+
+            setPadding(
+                dp(12),
+                dp(6),
+                dp(12),
+                dp(6)
+            )
+
+            includeFontPadding = true
         }
     }
 
@@ -722,6 +831,9 @@ class MainActivity : Activity() {
                 textValue
 
             textSize = 14f
+
+            gravity =
+                Gravity.CENTER
 
             setTextColor(
                 Color.rgb(
@@ -740,6 +852,21 @@ class MainActivity : Activity() {
             )
 
             isAllCaps = false
+
+            minHeight =
+                dp(52)
+
+            minimumHeight =
+                dp(52)
+
+            setPadding(
+                dp(12),
+                dp(6),
+                dp(12),
+                dp(6)
+            )
+
+            includeFontPadding = true
         }
     }
 
@@ -773,7 +900,8 @@ class MainActivity : Activity() {
 
                 override fun onFinish() {
 
-                    remainingMillis = 0L
+                    remainingMillis =
+                        0L
 
                     remainingTimeText.text =
                         "00:00:00"
@@ -802,7 +930,8 @@ class MainActivity : Activity() {
 
         sessionTimer = null
 
-        remainingMillis = 0L
+        remainingMillis =
+            0L
     }
 
     private fun formatTime(
@@ -859,21 +988,27 @@ class MainActivity : Activity() {
                 .toString()
                 .trim()
 
-        if (title.isNotEmpty()) {
+        if (
+            title.isNotEmpty()
+        ) {
 
             sendCommand(
                 "SET_TITLE:$title"
             )
         }
 
-        if (message.isNotEmpty()) {
+        if (
+            message.isNotEmpty()
+        ) {
 
             sendCommand(
                 "SET_MESSAGE:$message"
             )
         }
 
-        if (bill.isNotEmpty()) {
+        if (
+            bill.isNotEmpty()
+        ) {
 
             sendCommand(
                 "SET_BILL:$bill"
@@ -896,7 +1031,9 @@ class MainActivity : Activity() {
                 .toString()
                 .trim()
 
-        if (host.isEmpty()) {
+        if (
+            host.isEmpty()
+        ) {
 
             statusText.text =
                 "● Masukkan IP TV"
@@ -971,10 +1108,10 @@ class MainActivity : Activity() {
                 )
 
                 setPadding(
-                    2,
-                    18,
-                    2,
-                    10
+                    dp(2),
+                    dp(16),
+                    dp(2),
+                    dp(9)
                 )
             }
 
@@ -998,10 +1135,11 @@ class MainActivity : Activity() {
 
         return LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            56
+            dp(58)
         ).apply {
 
-            topMargin = 8
+            topMargin =
+                dp(8)
         }
     }
 
