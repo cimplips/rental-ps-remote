@@ -2,6 +2,7 @@ package com.rentalps.tv
 
 import android.app.Activity
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -23,8 +24,14 @@ class MainActivity : Activity() {
     private lateinit var expiredText: TextView
     private lateinit var controlPanel: LinearLayout
 
+    private lateinit var preferences: SharedPreferences
+
     private var countDownTimer: CountDownTimer? = null
     private var tvServer: TvServer? = null
+
+    private var titleText = "WAKTU HABIS"
+    private var messageText = "Silakan ke kasir"
+    private var billText = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +41,13 @@ class MainActivity : Activity() {
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
+
+        preferences = getSharedPreferences(
+            "rental_ps_tv",
+            MODE_PRIVATE
+        )
+
+        loadSettings()
 
         hideSystemBars()
         createScreen()
@@ -51,6 +65,42 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 
+    private fun loadSettings() {
+
+        titleText = preferences.getString(
+            "title",
+            "WAKTU HABIS"
+        ) ?: "WAKTU HABIS"
+
+        messageText = preferences.getString(
+            "message",
+            "Silakan ke kasir"
+        ) ?: "Silakan ke kasir"
+
+        billText = preferences.getString(
+            "bill",
+            ""
+        ) ?: ""
+    }
+
+    private fun saveSettings() {
+
+        preferences.edit()
+            .putString(
+                "title",
+                titleText
+            )
+            .putString(
+                "message",
+                messageText
+            )
+            .putString(
+                "bill",
+                billText
+            )
+            .apply()
+    }
+
     private fun createScreen() {
 
         root = FrameLayout(this).apply {
@@ -58,7 +108,9 @@ class MainActivity : Activity() {
         }
 
         timerText = TextView(this).apply {
+
             text = ""
+
             textSize = 14f
 
             setTextColor(
@@ -71,6 +123,7 @@ class MainActivity : Activity() {
             )
 
             gravity = Gravity.CENTER
+
             visibility = View.GONE
         }
 
@@ -97,9 +150,6 @@ class MainActivity : Activity() {
 
         expiredText = TextView(this).apply {
 
-            text =
-                "WAKTU HABIS\n\nSilakan ke kasir"
-
             textSize = 24f
 
             setTextColor(Color.WHITE)
@@ -107,6 +157,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
 
             visibility = View.VISIBLE
+
+            setPadding(
+                40,
+                40,
+                40,
+                40
+            )
         }
 
         val expiredParams =
@@ -120,9 +177,31 @@ class MainActivity : Activity() {
             expiredParams
         )
 
+        updateExpiredText()
+
         createControlPanel()
 
         setContentView(root)
+    }
+
+    private fun updateExpiredText() {
+
+        val parts = mutableListOf<String>()
+
+        if (titleText.isNotBlank()) {
+            parts.add(titleText)
+        }
+
+        if (messageText.isNotBlank()) {
+            parts.add(messageText)
+        }
+
+        if (billText.isNotBlank()) {
+            parts.add("Tagihan: $billText")
+        }
+
+        expiredText.text =
+            parts.joinToString("\n\n")
     }
 
     private fun createControlPanel() {
@@ -147,7 +226,6 @@ class MainActivity : Activity() {
                     20,
                     20
                 )
-            )
 
             visibility = View.VISIBLE
         }
@@ -279,8 +357,52 @@ class MainActivity : Activity() {
         when {
 
             command == "PING" -> {
-
                 // Tes koneksi.
+            }
+
+            command.startsWith("SET_TITLE:") -> {
+
+                titleText =
+                    command.substringAfter(
+                        "SET_TITLE:"
+                    ).trim()
+
+                saveSettings()
+
+                updateExpiredText()
+            }
+
+            command.startsWith("SET_MESSAGE:") -> {
+
+                messageText =
+                    command.substringAfter(
+                        "SET_MESSAGE:"
+                    ).trim()
+
+                saveSettings()
+
+                updateExpiredText()
+            }
+
+            command.startsWith("SET_BILL:") -> {
+
+                billText =
+                    command.substringAfter(
+                        "SET_BILL:"
+                    ).trim()
+
+                saveSettings()
+
+                updateExpiredText()
+            }
+
+            command == "CLEAR_BILL" -> {
+
+                billText = ""
+
+                saveSettings()
+
+                updateExpiredText()
             }
 
             command.startsWith("START:") -> {
@@ -390,6 +512,8 @@ class MainActivity : Activity() {
                     root.setBackgroundColor(
                         Color.BLACK
                     )
+
+                    updateExpiredText()
                 }
             }.start()
     }
@@ -461,6 +585,8 @@ class MainActivity : Activity() {
         root.setBackgroundColor(
             Color.BLACK
         )
+
+        updateExpiredText()
     }
 
     override fun onDestroy() {
