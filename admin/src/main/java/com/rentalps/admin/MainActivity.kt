@@ -3,7 +3,7 @@ package com.rentalps.admin
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -19,6 +19,9 @@ class MainActivity : Activity() {
         Executors.newSingleThreadExecutor()
 
     private lateinit var ipAddress: EditText
+    private lateinit var titleInput: EditText
+    private lateinit var messageInput: EditText
+    private lateinit var billInput: EditText
     private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,7 +44,11 @@ class MainActivity : Activity() {
             )
 
             setBackgroundColor(
-                Color.rgb(247, 249, 252)
+                Color.rgb(
+                    247,
+                    249,
+                    252
+                )
             )
         }
 
@@ -52,7 +59,11 @@ class MainActivity : Activity() {
             textSize = 30f
 
             setTextColor(
-                Color.rgb(30, 38, 50)
+                Color.rgb(
+                    30,
+                    38,
+                    50
+                )
             )
 
             setPadding(
@@ -72,7 +83,11 @@ class MainActivity : Activity() {
             textSize = 14f
 
             setTextColor(
-                Color.rgb(100, 108, 120)
+                Color.rgb(
+                    100,
+                    108,
+                    120
+                )
             )
 
             setPadding(
@@ -96,10 +111,7 @@ class MainActivity : Activity() {
 
         root.addView(
             ipAddress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            matchParentWrapContent()
         )
 
         statusText = TextView(this).apply {
@@ -109,7 +121,11 @@ class MainActivity : Activity() {
             textSize = 15f
 
             setTextColor(
-                Color.rgb(100, 108, 120)
+                Color.rgb(
+                    100,
+                    108,
+                    120
+                )
             )
 
             setPadding(
@@ -134,25 +150,10 @@ class MainActivity : Activity() {
 
         root.addView(testButton)
 
-        val psTitle = TextView(this).apply {
-
-            text = "PS 01"
-
-            textSize = 22f
-
-            setTextColor(
-                Color.rgb(30, 38, 50)
-            )
-
-            setPadding(
-                0,
-                28,
-                0,
-                8
-            )
-        }
-
-        root.addView(psTitle)
+        addSectionTitle(
+            root,
+            "PS 01"
+        )
 
         val startButton = Button(this).apply {
 
@@ -196,23 +197,106 @@ class MainActivity : Activity() {
 
         root.addView(stopButton)
 
-        val info = TextView(this).apply {
+        addSectionTitle(
+            root,
+            "Tampilan Saat Waktu Habis"
+        )
+
+        titleInput = EditText(this).apply {
+
+            hint = "Judul"
+
+            setSingleLine(true)
+
+            text = "WAKTU HABIS"
+
+            textSize = 16f
+        }
+
+        root.addView(
+            titleInput,
+            matchParentWrapContent()
+        )
+
+        messageInput = EditText(this).apply {
+
+            hint = "Pesan"
+
+            setSingleLine(false)
+
+            minLines = 2
+
+            text = "Silakan ke kasir"
+
+            textSize = 16f
+        }
+
+        root.addView(
+            messageInput,
+            matchParentWrapContent()
+        )
+
+        billInput = EditText(this).apply {
+
+            hint = "Tagihan, contoh Rp 25.000"
+
+            setSingleLine(true)
+
+            textSize = 16f
+        }
+
+        root.addView(
+            billInput,
+            matchParentWrapContent()
+        )
+
+        val saveDisplayButton = Button(this).apply {
+
+            text = "Simpan Tampilan ke TV"
+
+            setOnClickListener {
+
+                sendDisplaySettings()
+            }
+        }
+
+        root.addView(saveDisplayButton)
+
+        val clearBillButton = Button(this).apply {
+
+            text = "Hapus Tagihan di TV"
+
+            setOnClickListener {
+
+                sendCommand(
+                    "CLEAR_BILL"
+                )
+            }
+        }
+
+        root.addView(clearBillButton)
+
+        val infoText = TextView(this).apply {
 
             text =
                 """
                 
-                Kontrol TV:
+                Pengaturan TV:
                 
-                • TV tidak dimatikan.
-                • Countdown muncul pada 5 menit terakhir.
-                • Saat waktu habis, layar TV menjadi blank.
-                • Perintah dikirim melalui jaringan Wi-Fi yang sama.
+                • Judul dan pesan dapat diubah dari HP.
+                • Tagihan dapat dikirim ke TV.
+                • Pengaturan tersimpan di TV.
+                • QRIS akan kita tambahkan pada tahap berikutnya.
                 """.trimIndent()
 
             textSize = 14f
 
             setTextColor(
-                Color.rgb(90, 98, 110)
+                Color.rgb(
+                    90,
+                    98,
+                    110
+                )
             )
 
             setPadding(
@@ -223,17 +307,64 @@ class MainActivity : Activity() {
             )
         }
 
-        root.addView(info)
+        root.addView(infoText)
 
-        val scrollView = ScrollView(this).apply {
+        val scrollView =
+            ScrollView(this).apply {
 
-            addView(root)
-        }
+                addView(root)
+            }
 
         setContentView(scrollView)
     }
 
-    private fun sendCommand(command: String) {
+    private fun sendDisplaySettings() {
+
+        val title =
+            titleInput.text
+                .toString()
+                .trim()
+
+        val message =
+            messageInput.text
+                .toString()
+                .trim()
+
+        val bill =
+            billInput.text
+                .toString()
+                .trim()
+
+        if (title.isNotEmpty()) {
+
+            sendCommand(
+                "SET_TITLE:$title"
+            )
+        }
+
+        if (message.isNotEmpty()) {
+
+            sendCommand(
+                "SET_MESSAGE:$message"
+            )
+        }
+
+        if (bill.isNotEmpty()) {
+
+            sendCommand(
+                "SET_BILL:$bill"
+            )
+        } else {
+
+            sendCommand(
+                "CLEAR_BILL"
+            )
+        }
+    }
+
+    private fun sendCommand(
+        command: String
+    ) {
 
         val host =
             ipAddress.text
@@ -249,7 +380,7 @@ class MainActivity : Activity() {
         }
 
         statusText.text =
-            "● Menghubungkan..."
+            "● Mengirim perintah..."
 
         executor.execute {
 
@@ -277,7 +408,7 @@ class MainActivity : Activity() {
                         "● Perintah berhasil dikirim"
                 }
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
 
                 runOnUiThread {
 
@@ -286,6 +417,46 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun addSectionTitle(
+        root: LinearLayout,
+        text: String
+    ) {
+
+        val sectionTitle =
+            TextView(this).apply {
+
+                this.text = text
+
+                textSize = 22f
+
+                setTextColor(
+                    Color.rgb(
+                        30,
+                        38,
+                        50
+                    )
+                )
+
+                setPadding(
+                    0,
+                    28,
+                    0,
+                    8
+                )
+            }
+
+        root.addView(sectionTitle)
+    }
+
+    private fun matchParentWrapContent():
+        LinearLayout.LayoutParams {
+
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
     }
 
     override fun onDestroy() {
