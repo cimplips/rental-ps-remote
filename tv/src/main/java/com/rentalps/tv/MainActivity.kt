@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -28,6 +29,8 @@ class MainActivity : Activity() {
 
     private var countDownTimer: CountDownTimer? = null
     private var tvServer: TvServer? = null
+
+    private var overlayView: View? = null
 
     private var titleText = "WAKTU HABIS"
     private var messageText = "Silakan ke kasir"
@@ -127,21 +130,22 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
 
-        val timerParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
+        val timerParams =
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
 
-            gravity =
-                Gravity.BOTTOM or Gravity.END
+                gravity =
+                    Gravity.BOTTOM or Gravity.END
 
-            setMargins(
-                0,
-                0,
-                24,
-                18
-            )
-        }
+                setMargins(
+                    0,
+                    0,
+                    24,
+                    18
+                )
+            }
 
         root.addView(
             timerText,
@@ -186,7 +190,8 @@ class MainActivity : Activity() {
 
     private fun updateExpiredText() {
 
-        val parts = mutableListOf<String>()
+        val parts =
+            mutableListOf<String>()
 
         if (titleText.isNotBlank()) {
             parts.add(titleText)
@@ -197,7 +202,9 @@ class MainActivity : Activity() {
         }
 
         if (billText.isNotBlank()) {
-            parts.add("Tagihan: $billText")
+            parts.add(
+                "Tagihan: $billText"
+            )
         }
 
         expiredText.text =
@@ -208,7 +215,8 @@ class MainActivity : Activity() {
 
         controlPanel = LinearLayout(this).apply {
 
-            orientation = LinearLayout.HORIZONTAL
+            orientation =
+                LinearLayout.HORIZONTAL
 
             gravity = Gravity.CENTER
 
@@ -231,29 +239,31 @@ class MainActivity : Activity() {
             visibility = View.VISIBLE
         }
 
-        val settingsButton = Button(this).apply {
+        val settingsButton =
+            Button(this).apply {
 
-            text = "⚙"
+                text = "⚙"
 
-            textSize = 18f
+                textSize = 18f
 
-            setOnClickListener {
+                setOnClickListener {
 
-                openOverlaySettings()
+                    openOverlaySettings()
+                }
             }
-        }
 
-        val minimizeButton = Button(this).apply {
+        val minimizeButton =
+            Button(this).apply {
 
-            text = "−"
+                text = "−"
 
-            textSize = 22f
+                textSize = 22f
 
-            setOnClickListener {
+                setOnClickListener {
 
-                minimizeApp()
+                    minimizeApp()
+                }
             }
-        }
 
         controlPanel.addView(
             settingsButton,
@@ -364,37 +374,49 @@ class MainActivity : Activity() {
             command.startsWith("SET_TITLE:") -> {
 
                 titleText =
-                    command.substringAfter(
-                        "SET_TITLE:"
-                    ).trim()
+                    command
+                        .substringAfter(
+                            "SET_TITLE:"
+                        )
+                        .trim()
 
                 saveSettings()
 
                 updateExpiredText()
+
+                updateOverlayText()
             }
 
             command.startsWith("SET_MESSAGE:") -> {
 
                 messageText =
-                    command.substringAfter(
-                        "SET_MESSAGE:"
-                    ).trim()
+                    command
+                        .substringAfter(
+                            "SET_MESSAGE:"
+                        )
+                        .trim()
 
                 saveSettings()
 
                 updateExpiredText()
+
+                updateOverlayText()
             }
 
             command.startsWith("SET_BILL:") -> {
 
                 billText =
-                    command.substringAfter(
-                        "SET_BILL:"
-                    ).trim()
+                    command
+                        .substringAfter(
+                            "SET_BILL:"
+                        )
+                        .trim()
 
                 saveSettings()
 
                 updateExpiredText()
+
+                updateOverlayText()
             }
 
             command == "CLEAR_BILL" -> {
@@ -404,19 +426,25 @@ class MainActivity : Activity() {
                 saveSettings()
 
                 updateExpiredText()
+
+                updateOverlayText()
             }
 
             command.startsWith("START:") -> {
 
                 val seconds =
                     command
-                        .substringAfter("START:")
+                        .substringAfter(
+                            "START:"
+                        )
                         .toLongOrNull()
 
                 if (
                     seconds != null &&
                     seconds > 0
                 ) {
+
+                    removeBlankOverlay()
 
                     startTimer(
                         seconds * 1000L
@@ -428,13 +456,17 @@ class MainActivity : Activity() {
 
                 val seconds =
                     command
-                        .substringAfter("ADD:")
+                        .substringAfter(
+                            "ADD:"
+                        )
                         .toLongOrNull()
 
                 if (
                     seconds != null &&
                     seconds > 0
                 ) {
+
+                    removeBlankOverlay()
 
                     addTime(
                         seconds * 1000L
@@ -445,6 +477,8 @@ class MainActivity : Activity() {
             command == "STOP" -> {
 
                 stopTimer()
+
+                showBlankOverlay()
             }
         }
     }
@@ -454,6 +488,8 @@ class MainActivity : Activity() {
     ) {
 
         countDownTimer?.cancel()
+
+        removeBlankOverlay()
 
         expiredText.visibility =
             View.GONE
@@ -515,6 +551,8 @@ class MainActivity : Activity() {
                     )
 
                     updateExpiredText()
+
+                    showBlankOverlay()
                 }
             }.start()
     }
@@ -590,9 +628,160 @@ class MainActivity : Activity() {
         updateExpiredText()
     }
 
+    private fun showBlankOverlay() {
+
+        if (!Settings.canDrawOverlays(this)) {
+            return
+        }
+
+        if (overlayView != null) {
+            updateOverlayText()
+            return
+        }
+
+        val overlayRoot =
+            FrameLayout(this).apply {
+
+                setBackgroundColor(
+                    Color.BLACK
+                )
+
+                isFocusable = false
+                isClickable = false
+            }
+
+        val overlayText =
+            TextView(this).apply {
+
+                tag = "expired_overlay_text"
+
+                textSize = 24f
+
+                setTextColor(
+                    Color.WHITE
+                )
+
+                gravity = Gravity.CENTER
+
+                setPadding(
+                    40,
+                    40,
+                    40,
+                    40
+                )
+
+                text =
+                    buildExpiredText()
+            }
+
+        overlayRoot.addView(
+            overlayText,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val windowManager =
+            getSystemService(
+                WINDOW_SERVICE
+            ) as WindowManager
+
+        val params =
+            WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+
+                gravity = Gravity.TOP or Gravity.START
+
+                screenOrientation =
+                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+
+        try {
+
+            windowManager.addView(
+                overlayRoot,
+                params
+            )
+
+            overlayView = overlayRoot
+
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun updateOverlayText() {
+
+        val view =
+            overlayView ?: return
+
+        val textView =
+            view.findViewWithTag<TextView>(
+                "expired_overlay_text"
+            )
+
+        textView?.text =
+            buildExpiredText()
+    }
+
+    private fun buildExpiredText(): String {
+
+        val parts =
+            mutableListOf<String>()
+
+        if (titleText.isNotBlank()) {
+            parts.add(titleText)
+        }
+
+        if (messageText.isNotBlank()) {
+            parts.add(messageText)
+        }
+
+        if (billText.isNotBlank()) {
+            parts.add(
+                "Tagihan: $billText"
+            )
+        }
+
+        return parts.joinToString(
+            "\n\n"
+        )
+    }
+
+    private fun removeBlankOverlay() {
+
+        val view =
+            overlayView ?: return
+
+        val windowManager =
+            getSystemService(
+                WINDOW_SERVICE
+            ) as WindowManager
+
+        try {
+
+            windowManager.removeView(
+                view
+            )
+
+        } catch (_: Exception) {
+        }
+
+        overlayView = null
+    }
+
     override fun onDestroy() {
 
         countDownTimer?.cancel()
+
+        removeBlankOverlay()
 
         tvServer?.stop()
 
