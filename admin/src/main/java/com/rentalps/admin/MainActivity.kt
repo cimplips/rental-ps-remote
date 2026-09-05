@@ -157,6 +157,7 @@ class MainActivity : Activity() {
                     12,
                     18,
                     12
+                )
 
                 setBackgroundColor(
                     Color.WHITE
