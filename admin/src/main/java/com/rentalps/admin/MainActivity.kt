@@ -3,7 +3,6 @@ package com.rentalps.admin
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
-import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -208,7 +207,7 @@ class MainActivity : Activity() {
 
             setSingleLine(true)
 
-            text = "WAKTU HABIS"
+            setText("WAKTU HABIS")
 
             textSize = 16f
         }
@@ -226,7 +225,7 @@ class MainActivity : Activity() {
 
             minLines = 2
 
-            text = "Silakan ke kasir"
+            setText("Silakan ke kasir")
 
             textSize = 16f
         }
@@ -354,6 +353,7 @@ class MainActivity : Activity() {
             sendCommand(
                 "SET_BILL:$bill"
             )
+
         } else {
 
             sendCommand(
