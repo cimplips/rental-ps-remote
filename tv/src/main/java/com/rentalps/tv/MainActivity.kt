@@ -8,6 +8,8 @@ import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -36,6 +38,11 @@ class MainActivity : Activity() {
     private var messageText = "Silakan ke kasir"
     private var billText = ""
 
+    private val timerVisibilityHandler =
+        Handler(Looper.getMainLooper())
+
+    private var timerShowingFromStart = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -61,11 +68,11 @@ class MainActivity : Activity() {
 
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 
     private fun loadSettings() {
@@ -128,6 +135,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
 
             visibility = View.GONE
+
+            setPadding(
+                8,
+                4,
+                8,
+                4
+            )
         }
 
         val timerParams =
@@ -190,6 +204,12 @@ class MainActivity : Activity() {
 
     private fun updateExpiredText() {
 
+        expiredText.text =
+            buildExpiredText()
+    }
+
+    private fun buildExpiredText(): String {
+
         val parts =
             mutableListOf<String>()
 
@@ -207,8 +227,9 @@ class MainActivity : Activity() {
             )
         }
 
-        expiredText.text =
-            parts.joinToString("\n\n")
+        return parts.joinToString(
+            "\n\n"
+        )
     }
 
     private fun createControlPanel() {
@@ -489,6 +510,10 @@ class MainActivity : Activity() {
 
         countDownTimer?.cancel()
 
+        timerVisibilityHandler.removeCallbacksAndMessages(
+            null
+        )
+
         removeBlankOverlay()
 
         expiredText.visibility =
@@ -497,6 +522,11 @@ class MainActivity : Activity() {
         root.setBackgroundColor(
             Color.BLACK
         )
+
+        timerText.visibility =
+            View.VISIBLE
+
+        timerShowingFromStart = true
 
         countDownTimer =
             object : CountDownTimer(
@@ -511,34 +541,62 @@ class MainActivity : Activity() {
                     val totalSeconds =
                         millisUntilFinished / 1000
 
-                    val hours =
-                        totalSeconds / 3600
+                    updateTimerText(
+                        totalSeconds
+                    )
 
-                    val minutes =
-                        (totalSeconds % 3600) / 60
+                    /*
+                     * Timer awal hanya tampil
+                     * sekitar 10 detik.
+                     */
+                    if (
+                        timerShowingFromStart &&
+                        totalSeconds <= 3590
+                    ) {
 
-                    val seconds =
-                        totalSeconds % 60
+                        timerShowingFromStart =
+                            false
 
-                    timerText.text =
-                        String.format(
-                            "%02d:%02d:%02d",
-                            hours,
-                            minutes,
-                            seconds
-                        )
+                        timerVisibilityHandler.postDelayed({
 
-                    timerText.visibility =
-                        if (
-                            totalSeconds <= 300
-                        ) {
+                            /*
+                             * Jangan sembunyikan timer
+                             * jika sudah masuk 5 menit terakhir.
+                             */
+                            if (
+                                totalSeconds > 300
+                            ) {
+                                timerText.visibility =
+                                    View.GONE
+                            }
+
+                        }, 10_000)
+                    }
+
+                    /*
+                     * Ketika masuk 5 menit terakhir,
+                     * timer muncul kembali.
+                     */
+                    if (
+                        totalSeconds <= 300
+                    ) {
+
+                        timerVisibilityHandler
+                            .removeCallbacksAndMessages(
+                                null
+                            )
+
+                        timerText.visibility =
                             View.VISIBLE
-                        } else {
-                            View.GONE
-                        }
+                    }
                 }
 
                 override fun onFinish() {
+
+                    timerVisibilityHandler
+                        .removeCallbacksAndMessages(
+                            null
+                        )
 
                     timerText.visibility =
                         View.GONE
@@ -555,6 +613,28 @@ class MainActivity : Activity() {
                     showBlankOverlay()
                 }
             }.start()
+    }
+
+    private fun updateTimerText(
+        totalSeconds: Long
+    ) {
+
+        val hours =
+            totalSeconds / 3600
+
+        val minutes =
+            (totalSeconds % 3600) / 60
+
+        val seconds =
+            totalSeconds % 60
+
+        timerText.text =
+            String.format(
+                "%02d:%02d:%02d",
+                hours,
+                minutes,
+                seconds
+            )
     }
 
     private fun addTime(
@@ -597,9 +677,9 @@ class MainActivity : Activity() {
         val currentMillis =
             (
                 hours * 3600 +
-                minutes * 60 +
-                seconds
-            ) * 1000L
+                    minutes * 60 +
+                    seconds
+                ) * 1000L
 
         startTimer(
             currentMillis +
@@ -612,6 +692,11 @@ class MainActivity : Activity() {
         countDownTimer?.cancel()
 
         countDownTimer = null
+
+        timerVisibilityHandler
+            .removeCallbacksAndMessages(
+                null
+            )
 
         timerText.text = ""
 
@@ -635,7 +720,9 @@ class MainActivity : Activity() {
         }
 
         if (overlayView != null) {
+
             updateOverlayText()
+
             return
         }
 
@@ -653,7 +740,8 @@ class MainActivity : Activity() {
         val overlayText =
             TextView(this).apply {
 
-                tag = "expired_overlay_text"
+                tag =
+                    "expired_overlay_text"
 
                 textSize = 24f
 
@@ -661,7 +749,8 @@ class MainActivity : Activity() {
                     Color.WHITE
                 )
 
-                gravity = Gravity.CENTER
+                gravity =
+                    Gravity.CENTER
 
                 setPadding(
                     40,
@@ -698,10 +787,12 @@ class MainActivity : Activity() {
                 PixelFormat.TRANSLUCENT
             ).apply {
 
-                gravity = Gravity.TOP or Gravity.START
+                gravity =
+                    Gravity.TOP or Gravity.START
 
                 screenOrientation =
-                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    android.content.pm.ActivityInfo
+                        .SCREEN_ORIENTATION_LANDSCAPE
             }
 
         try {
@@ -711,7 +802,8 @@ class MainActivity : Activity() {
                 params
             )
 
-            overlayView = overlayRoot
+            overlayView =
+                overlayRoot
 
         } catch (_: Exception) {
         }
@@ -729,30 +821,6 @@ class MainActivity : Activity() {
 
         textView?.text =
             buildExpiredText()
-    }
-
-    private fun buildExpiredText(): String {
-
-        val parts =
-            mutableListOf<String>()
-
-        if (titleText.isNotBlank()) {
-            parts.add(titleText)
-        }
-
-        if (messageText.isNotBlank()) {
-            parts.add(messageText)
-        }
-
-        if (billText.isNotBlank()) {
-            parts.add(
-                "Tagihan: $billText"
-            )
-        }
-
-        return parts.joinToString(
-            "\n\n"
-        )
     }
 
     private fun removeBlankOverlay() {
@@ -780,6 +848,11 @@ class MainActivity : Activity() {
     override fun onDestroy() {
 
         countDownTimer?.cancel()
+
+        timerVisibilityHandler
+            .removeCallbacksAndMessages(
+                null
+            )
 
         removeBlankOverlay()
 
