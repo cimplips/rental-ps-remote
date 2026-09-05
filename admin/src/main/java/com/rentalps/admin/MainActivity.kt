@@ -2,7 +2,11 @@ package com.rentalps.admin
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
+import android.os.CountDownTimer
+import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -18,12 +22,25 @@ class MainActivity : Activity() {
         Executors.newSingleThreadExecutor()
 
     private lateinit var ipAddress: EditText
+
     private lateinit var titleInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var billInput: EditText
-    private lateinit var statusText: TextView
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    private lateinit var statusText: TextView
+    private lateinit var sessionStatusText: TextView
+    private lateinit var remainingTimeText: TextView
+    private lateinit var sessionPriceText: TextView
+
+    private var sessionTimer: CountDownTimer? = null
+
+    private var remainingMillis = 0L
+
+    private var sessionPrice = 10_000L
+
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
         super.onCreate(savedInstanceState)
 
         buildUi()
@@ -31,290 +48,797 @@ class MainActivity : Activity() {
 
     private fun buildUi() {
 
-        val root = LinearLayout(this).apply {
+        val scrollView =
+            ScrollView(this).apply {
 
-            orientation = LinearLayout.VERTICAL
-
-            setPadding(
-                28,
-                32,
-                28,
-                24
-            )
-
-            setBackgroundColor(
-                Color.rgb(
-                    247,
-                    249,
-                    252
+                setBackgroundColor(
+                    Color.rgb(
+                        245,
+                        247,
+                        250
+                    )
                 )
-            )
-        }
+            }
 
-        val title = TextView(this).apply {
+        val root =
+            LinearLayout(this).apply {
 
-            text = "Rental PS"
+                orientation =
+                    LinearLayout.VERTICAL
 
-            textSize = 30f
-
-            setTextColor(
-                Color.rgb(
-                    30,
-                    38,
-                    50
+                setPadding(
+                    22,
+                    28,
+                    22,
+                    32
                 )
-            )
+            }
 
-            setPadding(
-                0,
-                8,
-                0,
-                4
-            )
-        }
+        scrollView.addView(root)
 
-        root.addView(title)
+        /*
+         * HEADER
+         */
 
-        val subtitle = TextView(this).apply {
+        val title =
+            TextView(this).apply {
 
-            text = "Remote Android TV"
+                text = "Rental PS"
 
-            textSize = 14f
+                textSize = 30f
 
-            setTextColor(
-                Color.rgb(
-                    100,
-                    108,
-                    120
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    Color.rgb(
+                        35,
+                        42,
+                        52
+                    )
                 )
-            )
+            }
 
-            setPadding(
-                0,
-                0,
-                0,
-                20
-            )
-        }
+        root.addView(
+            title,
+            matchParentWrapContent()
+        )
 
-        root.addView(subtitle)
+        val subtitle =
+            TextView(this).apply {
 
-        ipAddress = EditText(this).apply {
+                text =
+                    "Kelola sesi PlayStation & Android TV"
 
-            hint = "IP TV, contoh 192.168.1.20"
+                textSize = 14f
 
-            setSingleLine(true)
+                setTextColor(
+                    Color.rgb(
+                        110,
+                        118,
+                        130
+                    )
+                )
 
-            textSize = 16f
-        }
+                setPadding(
+                    0,
+                    5,
+                    0,
+                    24
+                )
+            }
+
+        root.addView(
+            subtitle,
+            matchParentWrapContent()
+        )
+
+        /*
+         * KONEKSI TV
+         */
+
+        addSectionTitle(
+            root,
+            "Koneksi TV"
+        )
+
+        ipAddress =
+            EditText(this).apply {
+
+                hint =
+                    "IP TV, contoh 192.168.1.20"
+
+                setSingleLine(true)
+
+                textSize = 15f
+
+                setPadding(
+                    18,
+                    12,
+                    18,
+                    12
+
+                setBackgroundColor(
+                    Color.WHITE
+                )
+            }
 
         root.addView(
             ipAddress,
             matchParentWrapContent()
         )
 
-        statusText = TextView(this).apply {
+        statusText =
+            TextView(this).apply {
 
-            text = "● Belum terhubung"
+                text =
+                    "● Belum terhubung"
 
-            textSize = 15f
+                textSize = 13f
 
-            setTextColor(
-                Color.rgb(
-                    100,
-                    108,
-                    120
+                setTextColor(
+                    Color.rgb(
+                        105,
+                        113,
+                        125
+                    )
                 )
-            )
 
-            setPadding(
-                0,
-                12,
-                0,
-                20
-            )
-        }
-
-        root.addView(statusText)
-
-        val testButton = Button(this).apply {
-
-            text = "Tes Koneksi"
-
-            setOnClickListener {
-
-                sendCommand("PING")
+                setPadding(
+                    4,
+                    10,
+                    4,
+                    10
+                )
             }
+
+        root.addView(
+            statusText,
+            matchParentWrapContent()
+        )
+
+        val connectionButton =
+            createSoftButton(
+                "Tes Koneksi"
+            )
+
+        connectionButton.setOnClickListener {
+
+            sendCommand(
+                "PING"
+            )
         }
 
-        root.addView(testButton)
+        root.addView(
+            connectionButton,
+            matchParentButton()
+        )
+
+        /*
+         * SESSION CARD
+         */
 
         addSectionTitle(
             root,
-            "PS 01"
+            "Sesi Aktif"
         )
 
-        val startButton = Button(this).apply {
+        val sessionCard =
+            LinearLayout(this).apply {
 
-            text = "Mulai 1 Jam — Rp 10.000"
+                orientation =
+                    LinearLayout.VERTICAL
 
-            setOnClickListener {
+                setPadding(
+                    22,
+                    20,
+                    22,
+                    20
+                )
 
-                sendCommand(
-                    "START:3600"
+                setBackgroundColor(
+                    Color.WHITE
                 )
             }
-        }
 
-        root.addView(startButton)
+        val psName =
+            TextView(this).apply {
 
-        val addButton = Button(this).apply {
+                text = "PS 01"
 
-            text = "Tambah 30 Menit — Rp 5.000"
+                textSize = 20f
 
-            setOnClickListener {
+                typeface =
+                    Typeface.DEFAULT_BOLD
 
-                sendCommand(
-                    "ADD:1800"
+                setTextColor(
+                    Color.rgb(
+                        38,
+                        45,
+                        55
+                    )
                 )
             }
-        }
 
-        root.addView(addButton)
+        sessionCard.addView(
+            psName,
+            matchParentWrapContent()
+        )
 
-        val stopButton = Button(this).apply {
+        sessionStatusText =
+            TextView(this).apply {
 
-            text = "Akhiri Sesi"
+                text =
+                    "● Siap digunakan"
 
-            setOnClickListener {
+                textSize = 13f
 
-                sendCommand(
-                    "STOP"
+                setTextColor(
+                    Color.rgb(
+                        105,
+                        113,
+                        125
+                    )
+                )
+
+                setPadding(
+                    0,
+                    5,
+                    0,
+                    12
                 )
             }
+
+        sessionCard.addView(
+            sessionStatusText,
+            matchParentWrapContent()
+        )
+
+        remainingTimeText =
+            TextView(this).apply {
+
+                text = "00:00:00"
+
+                textSize = 38f
+
+                gravity =
+                    Gravity.CENTER
+
+                typeface =
+                    Typeface.create(
+                        Typeface.DEFAULT,
+                        Typeface.BOLD
+                    )
+
+                setTextColor(
+                    Color.rgb(
+                        45,
+                        52,
+                        64
+                    )
+                )
+
+                setPadding(
+                    0,
+                    12,
+                    0,
+                    12
+                )
+            }
+
+        sessionCard.addView(
+            remainingTimeText,
+            matchParentWrapContent()
+        )
+
+        val remainingLabel =
+            TextView(this).apply {
+
+                text =
+                    "Waktu tersisa"
+
+                textSize = 12f
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    Color.rgb(
+                        130,
+                        138,
+                        150
+                    )
+                )
+            }
+
+        sessionCard.addView(
+            remainingLabel,
+            matchParentWrapContent()
+        )
+
+        sessionPriceText =
+            TextView(this).apply {
+
+                text =
+                    "Rp 0"
+
+                textSize = 16f
+
+                gravity =
+                    Gravity.CENTER
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    Color.rgb(
+                        70,
+                        78,
+                        90
+                    )
+                )
+
+                setPadding(
+                    0,
+                    14,
+                    0,
+                    14
+                )
+            }
+
+        sessionCard.addView(
+            sessionPriceText,
+            matchParentWrapContent()
+        )
+
+        val startButton =
+            createPrimaryButton(
+                "Mulai 1 Jam  •  Rp 10.000"
+            )
+
+        startButton.setOnClickListener {
+
+            sessionPrice =
+                10_000L
+
+            sendCommand(
+                "START:3600"
+            )
+
+            startLocalTimer(
+                3_600_000L
+            )
+
+            sessionStatusText.text =
+                "● Sesi aktif"
+
+            sessionPriceText.text =
+                "Rp 10.000"
         }
 
-        root.addView(stopButton)
+        sessionCard.addView(
+            startButton,
+            matchParentButton()
+        )
+
+        val addButton =
+            createSoftButton(
+                "+ Tambah 30 Menit  •  Rp 5.000"
+            )
+
+        addButton.setOnClickListener {
+
+            sendCommand(
+                "ADD:1800"
+            )
+
+            if (remainingMillis > 0L) {
+
+                remainingMillis +=
+                    1_800_000L
+
+                restartLocalTimer(
+                    remainingMillis
+                )
+
+            } else {
+
+                startLocalTimer(
+                    1_800_000L
+                )
+            }
+
+            sessionPrice +=
+                5_000L
+
+            sessionPriceText.text =
+                formatRupiah(
+                    sessionPrice
+                )
+
+            sessionStatusText.text =
+                "● Sesi aktif"
+        }
+
+        sessionCard.addView(
+            addButton,
+            matchParentButton()
+        )
+
+        val stopButton =
+            createDangerButton(
+                "Akhiri Sesi"
+            )
+
+        stopButton.setOnClickListener {
+
+            sendCommand(
+                "STOP"
+            )
+
+            stopLocalTimer()
+
+            sessionStatusText.text =
+                "● Sesi selesai"
+
+            remainingTimeText.text =
+                "00:00:00"
+
+            sessionPriceText.text =
+                "Rp 0"
+
+            sessionPrice =
+                0L
+        }
+
+        sessionCard.addView(
+            stopButton,
+            matchParentButton()
+        )
+
+        root.addView(
+            sessionCard,
+            matchParentWrapContent()
+        )
+
+        /*
+         * TAMPILAN WAKTU HABIS
+         */
 
         addSectionTitle(
             root,
             "Tampilan Saat Waktu Habis"
         )
 
-        titleInput = EditText(this).apply {
+        titleInput =
+            createInput(
+                "Judul"
+            )
 
-            hint = "Judul"
-
-            setSingleLine(true)
-
-            setText("WAKTU HABIS")
-
-            textSize = 16f
-        }
+        titleInput.setText(
+            "WAKTU HABIS"
+        )
 
         root.addView(
             titleInput,
             matchParentWrapContent()
         )
 
-        messageInput = EditText(this).apply {
+        messageInput =
+            createInput(
+                "Pesan"
+            )
 
-            hint = "Pesan"
+        messageInput.setText(
+            "Silakan ke kasir"
+        )
 
-            setSingleLine(false)
-
-            minLines = 2
-
-            setText("Silakan ke kasir")
-
-            textSize = 16f
-        }
+        messageInput.minLines = 2
 
         root.addView(
             messageInput,
             matchParentWrapContent()
         )
 
-        billInput = EditText(this).apply {
-
-            hint = "Tagihan, contoh Rp 25.000"
-
-            setSingleLine(true)
-
-            textSize = 16f
-        }
+        billInput =
+            createInput(
+                "Tagihan, contoh Rp 25.000"
+            )
 
         root.addView(
             billInput,
             matchParentWrapContent()
         )
 
-        val saveDisplayButton = Button(this).apply {
+        val saveDisplayButton =
+            createSoftButton(
+                "Simpan Tampilan ke TV"
+            )
 
-            text = "Simpan Tampilan ke TV"
+        saveDisplayButton.setOnClickListener {
 
-            setOnClickListener {
-
-                sendDisplaySettings()
-            }
+            sendDisplaySettings()
         }
 
-        root.addView(saveDisplayButton)
+        root.addView(
+            saveDisplayButton,
+            matchParentButton()
+        )
 
-        val clearBillButton = Button(this).apply {
+        val clearBillButton =
+            createSoftButton(
+                "Hapus Tagihan di TV"
+            )
 
-            text = "Hapus Tagihan di TV"
+        clearBillButton.setOnClickListener {
 
-            setOnClickListener {
+            sendCommand(
+                "CLEAR_BILL"
+            )
+        }
 
-                sendCommand(
-                    "CLEAR_BILL"
+        root.addView(
+            clearBillButton,
+            matchParentButton()
+        )
+
+        /*
+         * INFO
+         */
+
+        val infoText =
+            TextView(this).apply {
+
+                text =
+                    """
+                    TV akan tetap menyala selama sesi.
+
+                    Saat waktu habis, TV menampilkan
+                    blank screen dan informasi tagihan.
+
+                    Pengaturan QRIS dan gambar akan
+                    kita tambahkan pada tahap berikutnya.
+                    """.trimIndent()
+
+                textSize = 13f
+
+                setTextColor(
+                    Color.rgb(
+                        110,
+                        118,
+                        130
+                    )
+                )
+
+                setPadding(
+                    4,
+                    24,
+                    4,
+                    8
                 )
             }
+
+        root.addView(
+            infoText,
+            matchParentWrapContent()
+        )
+
+        setContentView(
+            scrollView
+        )
+    }
+
+    private fun createInput(
+        hintText: String
+    ): EditText {
+
+        return EditText(this).apply {
+
+            hint = hintText
+
+            setSingleLine(false)
+
+            textSize = 15f
+
+            setPadding(
+                18,
+                12,
+                18,
+                12
+            )
+
+            setBackgroundColor(
+                Color.WHITE
+            )
         }
+    }
 
-        root.addView(clearBillButton)
+    private fun createSoftButton(
+        textValue: String
+    ): Button {
 
-        val infoText = TextView(this).apply {
+        return Button(this).apply {
 
             text =
-                """
-                
-                Pengaturan TV:
-                
-                • Judul dan pesan dapat diubah dari HP.
-                • Tagihan dapat dikirim ke TV.
-                • Pengaturan tersimpan di TV.
-                • QRIS akan kita tambahkan pada tahap berikutnya.
-                """.trimIndent()
+                textValue
+
+            textSize = 14f
+
+            setTextColor(
+                Color.rgb(
+                    55,
+                    63,
+                    75
+                )
+            )
+
+            setBackgroundColor(
+                Color.rgb(
+                    232,
+                    236,
+                    241
+                )
+            )
+
+            isAllCaps = false
+        }
+    }
+
+    private fun createPrimaryButton(
+        textValue: String
+    ): Button {
+
+        return Button(this).apply {
+
+            text =
+                textValue
+
+            textSize = 14f
+
+            setTextColor(
+                Color.WHITE
+            )
+
+            setBackgroundColor(
+                Color.rgb(
+                    70,
+                    78,
+                    92
+                )
+            )
+
+            isAllCaps = false
+        }
+    }
+
+    private fun createDangerButton(
+        textValue: String
+    ): Button {
+
+        return Button(this).apply {
+
+            text =
+                textValue
 
             textSize = 14f
 
             setTextColor(
                 Color.rgb(
                     90,
-                    98,
-                    110
+                    70,
+                    70
                 )
             )
 
-            setPadding(
-                0,
-                20,
-                0,
-                20
+            setBackgroundColor(
+                Color.rgb(
+                    242,
+                    232,
+                    232
+                )
             )
+
+            isAllCaps = false
         }
+    }
 
-        root.addView(infoText)
+    private fun startLocalTimer(
+        durationMillis: Long
+    ) {
 
-        val scrollView =
-            ScrollView(this).apply {
+        sessionTimer?.cancel()
 
-                addView(root)
-            }
+        remainingMillis =
+            durationMillis
 
-        setContentView(scrollView)
+        sessionTimer =
+            object : CountDownTimer(
+                durationMillis,
+                1000L
+            ) {
+
+                override fun onTick(
+                    millisUntilFinished: Long
+                ) {
+
+                    remainingMillis =
+                        millisUntilFinished
+
+                    remainingTimeText.text =
+                        formatTime(
+                            millisUntilFinished
+                        )
+                }
+
+                override fun onFinish() {
+
+                    remainingMillis = 0L
+
+                    remainingTimeText.text =
+                        "00:00:00"
+
+                    sessionStatusText.text =
+                        "● Waktu habis"
+
+                    sessionTimer = null
+                }
+
+            }.start()
+    }
+
+    private fun restartLocalTimer(
+        durationMillis: Long
+    ) {
+
+        startLocalTimer(
+            durationMillis
+        )
+    }
+
+    private fun stopLocalTimer() {
+
+        sessionTimer?.cancel()
+
+        sessionTimer = null
+
+        remainingMillis = 0L
+    }
+
+    private fun formatTime(
+        millis: Long
+    ): String {
+
+        val totalSeconds =
+            millis / 1000L
+
+        val hours =
+            totalSeconds / 3600L
+
+        val minutes =
+            (totalSeconds % 3600L) / 60L
+
+        val seconds =
+            totalSeconds % 60L
+
+        return String.format(
+            "%02d:%02d:%02d",
+            hours,
+            minutes,
+            seconds
+        )
+    }
+
+    private fun formatRupiah(
+        value: Long
+    ): String {
+
+        return String.format(
+            "Rp %,d",
+            value
+        ).replace(
+            ",",
+            "."
+        )
     }
 
     private fun sendDisplaySettings() {
@@ -397,7 +921,9 @@ class MainActivity : Activity() {
                             true
                         )
 
-                    writer.println(command)
+                    writer.println(
+                        command
+                    )
 
                     writer.flush()
                 }
@@ -405,7 +931,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
 
                     statusText.text =
-                        "● Perintah berhasil dikirim"
+                        "● TV terhubung"
                 }
 
             } catch (_: Exception) {
@@ -421,33 +947,40 @@ class MainActivity : Activity() {
 
     private fun addSectionTitle(
         root: LinearLayout,
-        text: String
+        textValue: String
     ) {
 
         val sectionTitle =
             TextView(this).apply {
 
-                this.text = text
+                text =
+                    textValue
 
-                textSize = 22f
+                textSize = 17f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
 
                 setTextColor(
                     Color.rgb(
-                        30,
-                        38,
-                        50
+                        50,
+                        58,
+                        70
                     )
                 )
 
                 setPadding(
-                    0,
-                    28,
-                    0,
-                    8
+                    2,
+                    18,
+                    2,
+                    10
                 )
             }
 
-        root.addView(sectionTitle)
+        root.addView(
+            sectionTitle,
+            matchParentWrapContent()
+        )
     }
 
     private fun matchParentWrapContent():
@@ -459,7 +992,23 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun matchParentButton():
+        LinearLayout.LayoutParams {
+
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            56
+        ).apply {
+
+            topMargin = 8
+        }
+    }
+
     override fun onDestroy() {
+
+        sessionTimer?.cancel()
+
+        sessionTimer = null
 
         executor.shutdownNow()
 
