@@ -38,15 +38,26 @@ class MainActivity : Activity() {
     private var messageText = "Silakan ke kasir"
     private var billText = ""
 
-    private val timerVisibilityHandler =
+    private val timerHandler =
         Handler(Looper.getMainLooper())
 
-    private var timerShowingFromStart = false
+    private val hideTimerRunnable =
+        Runnable {
+            if (
+                countDownTimer != null &&
+                timerText.visibility == View.VISIBLE
+            ) {
+                timerText.visibility =
+                    View.GONE
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        requestWindowFeature(
+            Window.FEATURE_NO_TITLE
+        )
 
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
@@ -125,7 +136,7 @@ class MainActivity : Activity() {
 
             setTextColor(
                 Color.argb(
-                    90,
+                    110,
                     255,
                     255,
                     255
@@ -137,10 +148,10 @@ class MainActivity : Activity() {
             visibility = View.GONE
 
             setPadding(
-                8,
-                4,
-                8,
-                4
+                10,
+                5,
+                10,
+                5
             )
         }
 
@@ -510,8 +521,8 @@ class MainActivity : Activity() {
 
         countDownTimer?.cancel()
 
-        timerVisibilityHandler.removeCallbacksAndMessages(
-            null
+        timerHandler.removeCallbacks(
+            hideTimerRunnable
         )
 
         removeBlankOverlay()
@@ -523,15 +534,26 @@ class MainActivity : Activity() {
             Color.BLACK
         )
 
+        /*
+         * Tampilkan timer SEGERA
+         * ketika sesi dimulai.
+         */
         timerText.visibility =
             View.VISIBLE
 
-        timerShowingFromStart = true
+        /*
+         * Sembunyikan timer setelah
+         * 10 detik.
+         */
+        timerHandler.postDelayed(
+            hideTimerRunnable,
+            10_000L
+        )
 
         countDownTimer =
             object : CountDownTimer(
                 durationMillis,
-                1000
+                1000L
             ) {
 
                 override fun onTick(
@@ -539,52 +561,23 @@ class MainActivity : Activity() {
                 ) {
 
                     val totalSeconds =
-                        millisUntilFinished / 1000
+                        millisUntilFinished / 1000L
 
                     updateTimerText(
                         totalSeconds
                     )
 
                     /*
-                     * Timer awal hanya tampil
-                     * sekitar 10 detik.
+                     * Lima menit terakhir:
+                     * timer harus selalu tampil.
                      */
                     if (
-                        timerShowingFromStart &&
-                        totalSeconds <= 3590
+                        totalSeconds <= 300L
                     ) {
 
-                        timerShowingFromStart =
-                            false
-
-                        timerVisibilityHandler.postDelayed({
-
-                            /*
-                             * Jangan sembunyikan timer
-                             * jika sudah masuk 5 menit terakhir.
-                             */
-                            if (
-                                totalSeconds > 300
-                            ) {
-                                timerText.visibility =
-                                    View.GONE
-                            }
-
-                        }, 10_000)
-                    }
-
-                    /*
-                     * Ketika masuk 5 menit terakhir,
-                     * timer muncul kembali.
-                     */
-                    if (
-                        totalSeconds <= 300
-                    ) {
-
-                        timerVisibilityHandler
-                            .removeCallbacksAndMessages(
-                                null
-                            )
+                        timerHandler.removeCallbacks(
+                            hideTimerRunnable
+                        )
 
                         timerText.visibility =
                             View.VISIBLE
@@ -593,10 +586,9 @@ class MainActivity : Activity() {
 
                 override fun onFinish() {
 
-                    timerVisibilityHandler
-                        .removeCallbacksAndMessages(
-                            null
-                        )
+                    timerHandler.removeCallbacks(
+                        hideTimerRunnable
+                    )
 
                     timerText.visibility =
                         View.GONE
@@ -620,13 +612,13 @@ class MainActivity : Activity() {
     ) {
 
         val hours =
-            totalSeconds / 3600
+            totalSeconds / 3600L
 
         val minutes =
-            (totalSeconds % 3600) / 60
+            (totalSeconds % 3600L) / 60L
 
         val seconds =
-            totalSeconds % 60
+            totalSeconds % 60L
 
         timerText.text =
             String.format(
@@ -666,18 +658,18 @@ class MainActivity : Activity() {
         }
 
         val hours =
-            parts[0].toLongOrNull() ?: 0
+            parts[0].toLongOrNull() ?: 0L
 
         val minutes =
-            parts[1].toLongOrNull() ?: 0
+            parts[1].toLongOrNull() ?: 0L
 
         val seconds =
-            parts[2].toLongOrNull() ?: 0
+            parts[2].toLongOrNull() ?: 0L
 
         val currentMillis =
             (
-                hours * 3600 +
-                    minutes * 60 +
+                hours * 3600L +
+                    minutes * 60L +
                     seconds
                 ) * 1000L
 
@@ -693,10 +685,9 @@ class MainActivity : Activity() {
 
         countDownTimer = null
 
-        timerVisibilityHandler
-            .removeCallbacksAndMessages(
-                null
-            )
+        timerHandler.removeCallbacks(
+            hideTimerRunnable
+        )
 
         timerText.text = ""
 
@@ -849,10 +840,9 @@ class MainActivity : Activity() {
 
         countDownTimer?.cancel()
 
-        timerVisibilityHandler
-            .removeCallbacksAndMessages(
-                null
-            )
+        timerHandler.removeCallbacks(
+            hideTimerRunnable
+        )
 
         removeBlankOverlay()
 
