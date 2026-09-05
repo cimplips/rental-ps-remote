@@ -30,6 +30,12 @@ class MainActivity : Activity() {
     private lateinit var messageInput: EditText
     private lateinit var billInput: EditText
 
+    private lateinit var psTypeInput: EditText
+    private lateinit var durationInput: EditText
+    private lateinit var priceInput: EditText
+    private lateinit var addDurationInput: EditText
+    private lateinit var addPriceInput: EditText
+
     private lateinit var statusText: TextView
     private lateinit var sessionStatusText: TextView
     private lateinit var remainingTimeText: TextView
@@ -266,6 +272,127 @@ class MainActivity : Activity() {
         )
 
         /*
+         * PENGATURAN SESI
+         */
+
+        addSectionTitle(
+            root,
+            "Pengaturan Sesi"
+        )
+
+        psTypeInput =
+            createInput(
+                "Jenis PS, contoh PS5"
+            )
+
+        psTypeInput.setText(
+            preferences.getString(
+                "ps_type",
+                "PS5"
+            ) ?: "PS5"
+        )
+
+        root.addView(
+            psTypeInput,
+            matchParentWrapContent()
+        )
+
+        durationInput =
+            createInput(
+                "Durasi mulai dalam menit"
+            )
+
+        durationInput.inputType =
+            android.text.InputType.TYPE_CLASS_NUMBER
+
+        durationInput.setText(
+            preferences.getInt(
+                "session_duration_minutes",
+                60
+            ).toString()
+        )
+
+        root.addView(
+            durationInput,
+            matchParentWrapContent()
+        )
+
+        priceInput =
+            createInput(
+                "Tarif sesi, contoh 10000"
+            )
+
+        priceInput.inputType =
+            android.text.InputType.TYPE_CLASS_NUMBER
+
+        priceInput.setText(
+            preferences.getLong(
+                "session_price",
+                10_000L
+            ).toString()
+        )
+
+        root.addView(
+            priceInput,
+            matchParentWrapContent()
+        )
+
+        addDurationInput =
+            createInput(
+                "Tambah waktu dalam menit"
+            )
+
+        addDurationInput.inputType =
+            android.text.InputType.TYPE_CLASS_NUMBER
+
+        addDurationInput.setText(
+            preferences.getInt(
+                "add_duration_minutes",
+                30
+            ).toString()
+        )
+
+        root.addView(
+            addDurationInput,
+            matchParentWrapContent()
+        )
+
+        addPriceInput =
+            createInput(
+                "Tarif tambah waktu, contoh 5000"
+            )
+
+        addPriceInput.inputType =
+            android.text.InputType.TYPE_CLASS_NUMBER
+
+        addPriceInput.setText(
+            preferences.getLong(
+                "add_price",
+                5_000L
+            ).toString()
+        )
+
+        root.addView(
+            addPriceInput,
+            matchParentWrapContent()
+        )
+
+        val saveSessionSettingsButton =
+            createSoftButton(
+                "Simpan Pengaturan Sesi"
+            )
+
+        saveSessionSettingsButton.setOnClickListener {
+
+            saveSessionSettings()
+        }
+
+        root.addView(
+            saveSessionSettingsButton,
+            matchParentButton()
+        )
+
+        /*
          * SESSION
          */
 
@@ -448,32 +575,57 @@ class MainActivity : Activity() {
 
         val startButton =
             createPrimaryButton(
-                "Mulai 1 Jam  •  Rp 10.000"
+                "Mulai Sesi"
             )
 
         startButton.setOnClickListener {
 
+            val durationMinutes =
+                durationInput.text
+                    .toString()
+                    .trim()
+                    .toLongOrNull()
+                    ?.coerceAtLeast(1L)
+                    ?: 60L
+
+            val price =
+                priceInput.text
+                    .toString()
+                    .replace(".", "")
+                    .replace(",", "")
+                    .trim()
+                    .toLongOrNull()
+                    ?.coerceAtLeast(0L)
+                    ?: 10_000L
+
+            val durationSeconds =
+                durationMinutes * 60L
+
             sessionPrice =
-                10_000L
+                price
+
+            saveSessionSettings()
 
             saveSessionEndTime(
                 System.currentTimeMillis() +
-                    3_600_000L
+                    durationMinutes * 60_000L
             )
 
             sendCommand(
-                "START:3600"
+                "START:$durationSeconds"
             )
 
             startLocalTimer(
-                3_600_000L
+                durationMinutes * 60_000L
             )
 
             sessionStatusText.text =
                 "● Sesi aktif"
 
             sessionPriceText.text =
-                "Rp 10.000"
+                formatRupiah(
+                    sessionPrice
+                )
         }
 
         sessionCard.addView(
@@ -504,16 +656,36 @@ class MainActivity : Activity() {
                     System.currentTimeMillis()
                 }
 
+            val addMinutes =
+                addDurationInput.text
+                    .toString()
+                    .trim()
+                    .toLongOrNull()
+                    ?.coerceAtLeast(1L)
+                    ?: 30L
+
+            val addPrice =
+                addPriceInput.text
+                    .toString()
+                    .replace(".", "")
+                    .replace(",", "")
+                    .trim()
+                    .toLongOrNull()
+                    ?.coerceAtLeast(0L)
+                    ?: 5_000L
+
             val newEndTime =
                 baseEndTime +
-                    1_800_000L
+                    addMinutes * 60_000L
+
+            saveSessionSettings()
 
             saveSessionEndTime(
                 newEndTime
             )
 
             sendCommand(
-                "ADD:1800"
+                "ADD:${addMinutes * 60L}"
             )
 
             startTimerUntil(
@@ -521,7 +693,7 @@ class MainActivity : Activity() {
             )
 
             sessionPrice +=
-                5_000L
+                addPrice
 
             sessionPriceText.text =
                 formatRupiah(
@@ -1125,6 +1297,79 @@ class MainActivity : Activity() {
             sessionStatusText.text =
                 "● Sesi aktif"
         }
+    }
+
+    private fun saveSessionSettings() {
+
+        val psType =
+            psTypeInput.text
+                .toString()
+                .trim()
+                .ifEmpty {
+                    "PS5"
+                }
+
+        val durationMinutes =
+            durationInput.text
+                .toString()
+                .trim()
+                .toLongOrNull()
+                ?.coerceAtLeast(1L)
+                ?: 60L
+
+        val price =
+            priceInput.text
+                .toString()
+                .replace(".", "")
+                .replace(",", "")
+                .trim()
+                .toLongOrNull()
+                ?.coerceAtLeast(0L)
+                ?: 10_000L
+
+        val addMinutes =
+            addDurationInput.text
+                .toString()
+                .trim()
+                .toLongOrNull()
+                ?.coerceAtLeast(1L)
+                ?: 30L
+
+        val addPrice =
+            addPriceInput.text
+                .toString()
+                .replace(".", "")
+                .replace(",", "")
+                .trim()
+                .toLongOrNull()
+                ?.coerceAtLeast(0L)
+                ?: 5_000L
+
+        preferences.edit()
+            .putString(
+                "ps_type",
+                psType
+            )
+            .putInt(
+                "session_duration_minutes",
+                durationMinutes.toInt()
+            )
+            .putLong(
+                "session_price",
+                price
+            )
+            .putInt(
+                "add_duration_minutes",
+                addMinutes.toInt()
+            )
+            .putLong(
+                "add_price",
+                addPrice
+            )
+            .apply()
+
+        statusText.text =
+            "● Pengaturan sesi tersimpan"
     }
 
     private fun formatTime(
