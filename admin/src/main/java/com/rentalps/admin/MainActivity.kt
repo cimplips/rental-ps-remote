@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.content.SharedPreferences
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -17,6 +18,8 @@ import java.net.Socket
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
+
+    private lateinit var preferences: SharedPreferences
 
     private val executor =
         Executors.newSingleThreadExecutor()
@@ -43,7 +46,15 @@ class MainActivity : Activity() {
     ) {
         super.onCreate(savedInstanceState)
 
+        preferences =
+            getSharedPreferences(
+                "rental_ps_admin",
+                MODE_PRIVATE
+            )
+
         buildUi()
+
+        restoreSavedSession()
     }
 
     private fun dp(
@@ -195,6 +206,13 @@ class MainActivity : Activity() {
                 minHeight =
                     dp(50)
             }
+
+        ipAddress.setText(
+            preferences.getString(
+                "tv_ip",
+                ""
+            ) ?: ""
+        )
 
         root.addView(
             ipAddress,
@@ -438,6 +456,11 @@ class MainActivity : Activity() {
             sessionPrice =
                 10_000L
 
+            saveSessionEndTime(
+                System.currentTimeMillis() +
+                    3_600_000L
+            )
+
             sendCommand(
                 "START:3600"
             )
@@ -469,27 +492,33 @@ class MainActivity : Activity() {
 
         addButton.setOnClickListener {
 
+            val currentEndTime =
+                getSavedSessionEndTime()
+
+            val baseEndTime =
+                if (
+                    currentEndTime > System.currentTimeMillis()
+                ) {
+                    currentEndTime
+                } else {
+                    System.currentTimeMillis()
+                }
+
+            val newEndTime =
+                baseEndTime +
+                    1_800_000L
+
+            saveSessionEndTime(
+                newEndTime
+            )
+
             sendCommand(
                 "ADD:1800"
             )
 
-            if (
-                remainingMillis > 0L
-            ) {
-
-                remainingMillis +=
-                    1_800_000L
-
-                restartLocalTimer(
-                    remainingMillis
-                )
-
-            } else {
-
-                startLocalTimer(
-                    1_800_000L
-                )
-            }
+            startTimerUntil(
+                newEndTime
+            )
 
             sessionPrice +=
                 5_000L
@@ -874,14 +903,53 @@ class MainActivity : Activity() {
         durationMillis: Long
     ) {
 
+        val endTime =
+            System.currentTimeMillis() +
+                durationMillis
+
+        saveSessionEndTime(
+            endTime
+        )
+
+        startTimerUntil(
+            endTime
+        )
+    }
+
+    private fun startTimerUntil(
+        endTimeMillis: Long
+    ) {
+
         sessionTimer?.cancel()
 
+        val remaining =
+            endTimeMillis -
+                System.currentTimeMillis()
+
+        if (remaining <= 0L) {
+
+            remainingMillis =
+                0L
+
+            remainingTimeText.text =
+                "00:00:00"
+
+            sessionStatusText.text =
+                "● Waktu habis"
+
+            clearSavedSession()
+
+            sessionTimer = null
+
+            return
+        }
+
         remainingMillis =
-            durationMillis
+            remaining
 
         sessionTimer =
             object : CountDownTimer(
-                durationMillis,
+                remaining,
                 1000L
             ) {
 
@@ -889,12 +957,18 @@ class MainActivity : Activity() {
                     millisUntilFinished: Long
                 ) {
 
+                    val currentRemaining =
+                        endTimeMillis -
+                            System.currentTimeMillis()
+
                     remainingMillis =
-                        millisUntilFinished
+                        currentRemaining.coerceAtLeast(
+                            0L
+                        )
 
                     remainingTimeText.text =
                         formatTime(
-                            millisUntilFinished
+                            remainingMillis
                         )
                 }
 
@@ -909,9 +983,10 @@ class MainActivity : Activity() {
                     sessionStatusText.text =
                         "● Waktu habis"
 
+                    clearSavedSession()
+
                     sessionTimer = null
                 }
-
             }.start()
     }
 
@@ -932,6 +1007,70 @@ class MainActivity : Activity() {
 
         remainingMillis =
             0L
+    }
+
+    private fun saveSessionEndTime(
+        endTimeMillis: Long
+    ) {
+
+        preferences.edit()
+            .putLong(
+                "session_end_time",
+                endTimeMillis
+            )
+            .apply()
+    }
+
+    private fun getSavedSessionEndTime(): Long {
+
+        return preferences.getLong(
+            "session_end_time",
+            0L
+        )
+    }
+
+    private fun clearSavedSession() {
+
+        preferences.edit()
+            .remove(
+                "session_end_time"
+            )
+            .apply()
+    }
+
+    private fun restoreSavedSession() {
+
+        val savedEndTime =
+            getSavedSessionEndTime()
+
+        if (
+            savedEndTime <= 0L
+        ) {
+            return
+        }
+
+        if (
+            savedEndTime >
+            System.currentTimeMillis()
+        ) {
+
+            sessionStatusText.text =
+                "● Sesi aktif"
+
+            startTimerUntil(
+                savedEndTime
+            )
+
+        } else {
+
+            clearSavedSession()
+
+            remainingTimeText.text =
+                "00:00:00"
+
+            sessionStatusText.text =
+                "● Waktu habis"
+        }
     }
 
     private fun formatTime(
@@ -1141,6 +1280,20 @@ class MainActivity : Activity() {
             topMargin =
                 dp(8)
         }
+    }
+
+    override fun onPause() {
+
+        preferences.edit()
+            .putString(
+                "tv_ip",
+                ipAddress.text
+                    .toString()
+                    .trim()
+            )
+            .apply()
+
+        super.onPause()
     }
 
     override fun onDestroy() {
