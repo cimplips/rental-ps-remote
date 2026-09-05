@@ -947,6 +947,10 @@ class MainActivity : Activity() {
         remainingMillis =
             remaining
 
+        updateSessionTimeAppearance(
+            remainingMillis
+        )
+
         sessionTimer =
             object : CountDownTimer(
                 remaining,
@@ -970,6 +974,10 @@ class MainActivity : Activity() {
                         formatTime(
                             remainingMillis
                         )
+
+                    updateSessionTimeAppearance(
+                        remainingMillis
+                    )
                 }
 
                 override fun onFinish() {
@@ -980,8 +988,9 @@ class MainActivity : Activity() {
                     remainingTimeText.text =
                         "00:00:00"
 
-                    sessionStatusText.text =
-                        "● Waktu habis"
+                    updateSessionTimeAppearance(
+                        0L
+                    )
 
                     clearSavedSession()
 
@@ -1070,6 +1079,51 @@ class MainActivity : Activity() {
 
             sessionStatusText.text =
                 "● Waktu habis"
+        }
+    }
+
+    private fun updateSessionTimeAppearance(
+        remaining: Long
+    ) {
+
+        if (remaining <= 0L) {
+            remainingTimeText.setTextColor(
+                Color.rgb(
+                    90,
+                    70,
+                    70
+                )
+            )
+
+            sessionStatusText.text =
+                "● Waktu habis"
+
+            return
+        }
+
+        if (remaining <= 300_000L) {
+            remainingTimeText.setTextColor(
+                Color.rgb(
+                    110,
+                    92,
+                    92
+                )
+            )
+
+            sessionStatusText.text =
+                "● Sisa waktu kurang dari 5 menit"
+
+        } else {
+            remainingTimeText.setTextColor(
+                Color.rgb(
+                    45,
+                    52,
+                    64
+                )
+            )
+
+            sessionStatusText.text =
+                "● Sesi aktif"
         }
     }
 
