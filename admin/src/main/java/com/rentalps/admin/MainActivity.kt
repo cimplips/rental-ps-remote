@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -29,6 +31,25 @@ class MainActivity : Activity() {
     private val executor = Executors.newCachedThreadPool()
 
     private var sessionTimer: CountDownTimer? = null
+
+    private val statusHandler =
+        Handler(Looper.getMainLooper())
+
+    private val statusPollRunnable =
+        object : Runnable {
+            override fun run() {
+                if (screen == Screen.TABLE) {
+                    syncTableStatus(
+                        selectedTable,
+                        rebuildWhenChanged = true
+                    )
+                    statusHandler.postDelayed(
+                        this,
+                        3_000L
+                    )
+                }
+            }
+        }
     private var selectedTable = 1
     private var screen = Screen.HOME
 
@@ -102,6 +123,7 @@ class MainActivity : Activity() {
                 minHeight = dp(48)
                 setOnClickListener {
                     sessionTimer?.cancel()
+                    stopStatusPolling()
                     screen = Screen.HOME
                     buildHomeScreen()
                 }
@@ -330,6 +352,7 @@ class MainActivity : Activity() {
         )
 
         syncTableStatus(selectedTable, rebuildWhenChanged = false)
+        startStatusPolling()
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -895,6 +918,18 @@ class MainActivity : Activity() {
         root.addView(save, matchParentButton())
     }
 
+    private fun startStatusPolling() {
+        statusHandler.removeCallbacks(statusPollRunnable)
+
+        if (screen == Screen.TABLE) {
+            statusHandler.post(statusPollRunnable)
+        }
+    }
+
+    private fun stopStatusPolling() {
+        statusHandler.removeCallbacks(statusPollRunnable)
+    }
+
     private fun sendCommandToTable(tableNumber: Int, command: String) {
         val host = getTableIp(tableNumber)
         if (host.isBlank()) {
@@ -977,9 +1012,26 @@ class MainActivity : Activity() {
         val endKey = tableKey(tableNumber, "session_end_time")
         val pausedRemainingKey = tableKey(tableNumber, "paused_remaining")
 
+        val oldActive =
+            preferences.getBoolean(activeKey, false)
+        val oldPaused =
+            preferences.getBoolean(pausedKey, false)
+        val oldEnd =
+            preferences.getLong(endKey, 0L)
+        val oldPausedRemaining =
+            preferences.getLong(pausedRemainingKey, 0L)
+
+        var changed = false
+
         when (status) {
             "ACTIVE" -> {
                 if (value <= System.currentTimeMillis()) {
+                    changed =
+                        oldActive ||
+                            oldPaused ||
+                            oldEnd != 0L ||
+                            oldPausedRemaining != 0L
+
                     preferences.edit()
                         .putBoolean(activeKey, false)
                         .putBoolean(pausedKey, false)
@@ -987,6 +1039,12 @@ class MainActivity : Activity() {
                         .remove(pausedRemainingKey)
                         .apply()
                 } else {
+                    changed =
+                        !oldActive ||
+                            oldPaused ||
+                            oldEnd != value ||
+                            oldPausedRemaining != 0L
+
                     preferences.edit()
                         .putBoolean(activeKey, true)
                         .putBoolean(pausedKey, false)
@@ -998,6 +1056,12 @@ class MainActivity : Activity() {
 
             "PAUSED" -> {
                 if (value > 0L) {
+                    changed =
+                        !oldActive ||
+                            !oldPaused ||
+                            oldEnd != 0L ||
+                            oldPausedRemaining != value
+
                     preferences.edit()
                         .putBoolean(activeKey, true)
                         .putBoolean(pausedKey, true)
@@ -1008,6 +1072,12 @@ class MainActivity : Activity() {
             }
 
             "IDLE" -> {
+                changed =
+                    oldActive ||
+                        oldPaused ||
+                        oldEnd != 0L ||
+                        oldPausedRemaining != 0L
+
                 preferences.edit()
                     .putBoolean(activeKey, false)
                     .putBoolean(pausedKey, false)
@@ -1021,6 +1091,7 @@ class MainActivity : Activity() {
 
         if (
             rebuildWhenChanged &&
+            changed &&
             screen == Screen.TABLE &&
             selectedTable == tableNumber
         ) {
@@ -1211,6 +1282,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         sessionTimer?.cancel()
         sessionTimer = null
+        stopStatusPolling()
         executor.shutdownNow()
         super.onDestroy()
     }
