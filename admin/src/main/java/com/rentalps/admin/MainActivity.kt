@@ -274,6 +274,13 @@ class MainActivity : Activity() {
         root.addView(summary, matchParentWrapContent())
 
         val activeSessionCount = (1..TABLE_COUNT).count { isTableActive(it) }
+        val pausedSessionCount = (1..TABLE_COUNT).count { isTablePaused(it) }
+
+        val emergencyRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
         val pauseAllButton = createSmallDashboardButton("Ⅱ  PAUSE SEMUA").apply {
             isEnabled = activeSessionCount > 0
             alpha = if (isEnabled) 1f else 0.55f
@@ -281,15 +288,40 @@ class MainActivity : Activity() {
                 showPauseAllConfirmation()
             }
         }
-        root.addView(
+
+        val resumeAllButton = createSmallDashboardButton("▶  LANJUT SEMUA").apply {
+            isEnabled = pausedSessionCount > 0
+            alpha = if (isEnabled) 1f else 0.55f
+            setOnClickListener {
+                showResumeAllConfirmation()
+            }
+        }
+
+        emergencyRow.addView(
             pauseAllButton,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 dp(40)
             ).apply {
+                rightMargin = dp(6)
+            }
+        )
+        emergencyRow.addView(
+            resumeAllButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(40)
+            )
+        )
+
+        root.addView(
+            emergencyRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(40)
+            ).apply {
                 topMargin = dp(8)
                 bottomMargin = dp(6)
-                gravity = Gravity.END
             }
         )
 
@@ -664,6 +696,73 @@ class MainActivity : Activity() {
                 pauseAllActiveSessions(activeTables)
             }
             .show()
+    }
+
+    private fun showResumeAllConfirmation() {
+        val pausedTables = (1..TABLE_COUNT)
+            .filter { isTablePaused(it) }
+
+        if (pausedTables.isEmpty()) {
+            showToast("Tidak ada sesi pause yang perlu dilanjutkan")
+            return
+        }
+
+        val tableNames = pausedTables.joinToString(", ") {
+            String.format(Locale.US, "Meja %02d", it)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Lanjutkan Semua Sesi?")
+            .setMessage(
+                "Semua sesi yang sedang pause akan dilanjutkan. " +
+                    "Pastikan TV dan listrik sudah siap.\n\n" +
+                    tableNames
+            )
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("LANJUT SEMUA") { _, _ ->
+                resumeAllPausedSessions(pausedTables)
+            }
+            .show()
+    }
+
+    private fun resumeAllPausedSessions(pausedTables: List<Int>) {
+        var resumedCount = 0
+
+        for (tableNumber in pausedTables) {
+            val remaining = preferences.getLong(
+                tableKey(tableNumber, "paused_remaining"),
+                0L
+            )
+
+            if (remaining <= 0L) {
+                continue
+            }
+
+            val newEnd = System.currentTimeMillis() + remaining
+
+            preferences.edit()
+                .putBoolean(tableKey(tableNumber, "active"), true)
+                .putBoolean(tableKey(tableNumber, "paused"), false)
+                .putLong(tableKey(tableNumber, "session_end_time"), newEnd)
+                .putLong(tableKey(tableNumber, "paused_remaining"), 0L)
+                .apply()
+
+            sendCommandToTable(
+                tableNumber,
+                "START:${remaining / 1000L}"
+            )
+            resumedCount++
+        }
+
+        if (resumedCount > 0) {
+            showToast("$resumedCount sesi berhasil dilanjutkan")
+        } else {
+            showToast("Tidak ada sesi pause yang bisa dilanjutkan")
+        }
+
+        if (screen == Screen.HOME) {
+            buildHomeScreen()
+        }
     }
 
     private fun pauseAllActiveSessions(activeTables: List<Int>) {
