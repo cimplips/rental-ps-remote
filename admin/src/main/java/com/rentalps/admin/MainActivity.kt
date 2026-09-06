@@ -3,6 +3,8 @@ package com.rentalps.admin
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.SharedPreferences
+import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.util.Base64
@@ -24,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.net.Socket
 import java.util.Locale
@@ -123,6 +126,9 @@ class MainActivity : Activity() {
     private var homeRefreshScheduled = false
     private var selectedTable = 1
     private var screen = Screen.HOME
+
+    private var qrisPickerTable = 1
+    private var pendingQrisBase64 = ""
 
     private var sessionPrice = 0L
     private var pausedRemainingMillis = 0L
@@ -1683,6 +1689,90 @@ class MainActivity : Activity() {
         attachNominalFormatter(billInput)
         root.addView(billInput, matchParentWrapContent())
 
+        val qrisLabel = createSectionLabel("QRIS")
+        root.addView(qrisLabel, matchParentWrapContent())
+
+        val qrisPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            setBackgroundColor(Color.rgb(245, 246, 248))
+            contentDescription = "Preview QRIS"
+        }
+        root.addView(
+            qrisPreview,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(220)
+            ).apply {
+                setMargins(dp(4), dp(4), dp(4), dp(8))
+            }
+        )
+
+        val qrisStatus = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.rgb(110, 118, 130))
+            gravity = Gravity.CENTER
+            setPadding(dp(4), 0, dp(4), dp(8))
+        }
+        root.addView(qrisStatus, matchParentWrapContent())
+
+        qrisPreviewForCurrentScreen = qrisPreview
+        qrisStatusForCurrentScreen = qrisStatus
+
+        fun loadQrisPreview(table: Int) {
+            val base64 = preferences.getString(
+                tableKey(table, "qris_image_base64"),
+                ""
+            ).orEmpty()
+            pendingQrisBase64 = base64
+            qrisPickerTable = table
+
+            if (base64.isBlank()) {
+                qrisPreview.setImageDrawable(null)
+                qrisStatus.text = "Belum ada gambar QRIS"
+                return
+            }
+
+            try {
+                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) {
+                    qrisPreview.setImageBitmap(bitmap)
+                    qrisStatus.text = "QRIS tersimpan di HP"
+                } else {
+                    qrisPreview.setImageDrawable(null)
+                    qrisStatus.text = "Gambar QRIS tidak valid"
+                }
+            } catch (_: Exception) {
+                qrisPreview.setImageDrawable(null)
+                qrisStatus.text = "Gambar QRIS tidak valid"
+            }
+        }
+
+        tableSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                loadQrisPreview(position + 1)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+
+        val chooseQris = createSoftButton("PILIH GAMBAR QRIS")
+        chooseQris.setOnClickListener {
+            qrisPickerTable = tableSpinner.selectedItemPosition + 1
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+            startActivityForResult(intent, REQUEST_QRIS_IMAGE)
+        }
+        root.addView(chooseQris, matchParentButton())
+
         val save = createPrimaryButton("SIMPAN KE TV")
         save.setOnClickListener {
             val table = tableSpinner.selectedItemPosition + 1
@@ -1702,10 +1792,107 @@ class MainActivity : Activity() {
                 sendCommandToTable(table, "CLEAR_BILL")
             }
 
+            if (pendingQrisBase64.isNotBlank()) {
+                sendCommandToTable(table, "SET_IMAGE:$pendingQrisBase64")
+            } else {
+                sendCommandToTable(table, "CLEAR_IMAGE")
+            }
+
             showToast("Tampilan TV ${String.format(Locale.US, "%02d", table)} disimpan")
         }
         root.addView(save, matchParentButton())
+
+        val clearQris = createSoftButton("HAPUS QRIS DI TV")
+        clearQris.setOnClickListener {
+            val table = tableSpinner.selectedItemPosition + 1
+            preferences.edit()
+                .remove(tableKey(table, "qris_image_base64"))
+                .apply()
+            pendingQrisBase64 = ""
+            qrisPreview.setImageDrawable(null)
+            qrisStatus.text = "Belum ada gambar QRIS"
+            sendCommandToTable(table, "CLEAR_IMAGE")
+            showToast("QRIS TV ${String.format(Locale.US, "%02d", table)} dihapus")
+        }
+        root.addView(clearQris, matchParentButton())
+
+        loadQrisPreview(1)
     }
+
+    private fun encodeQrisImage(uri: android.net.Uri): String? {
+        return try {
+            val input = contentResolver.openInputStream(uri) ?: return null
+            input.use { stream ->
+                val source = BitmapFactory.decodeStream(stream) ?: return null
+                val maxSize = 700
+                val scale = minOf(1f, maxSize.toFloat() / maxOf(source.width, source.height).toFloat())
+                val bitmap = if (scale < 1f) {
+                    Bitmap.createScaledBitmap(
+                        source,
+                        (source.width * scale).toInt().coerceAtLeast(1),
+                        (source.height * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    source
+                }
+
+                val output = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.WEBP, 70, output)
+
+                if (bitmap !== source) {
+                    bitmap.recycle()
+                }
+                source.recycle()
+
+                Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != REQUEST_QRIS_IMAGE || resultCode != RESULT_OK) {
+            return
+        }
+
+        val uri = data?.data ?: return
+        val table = qrisPickerTable
+
+        executor.execute {
+            val encoded = encodeQrisImage(uri)
+
+            runOnUiThread {
+                if (encoded.isNullOrBlank()) {
+                    showToast("Gagal membaca gambar QRIS")
+                    return@runOnUiThread
+                }
+
+                pendingQrisBase64 = encoded
+                preferences.edit()
+                    .putString(tableKey(table, "qris_image_base64"), encoded)
+                    .apply()
+
+                if (table == qrisPickerTable) {
+                    try {
+                        val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        qrisPreviewForCurrentScreen?.setImageBitmap(bitmap)
+                    } catch (_: Exception) {
+                    }
+                }
+
+                qrisStatusForCurrentScreen?.text = "QRIS siap disimpan ke TV"
+                showToast("QRIS TV ${String.format(Locale.US, "%02d", table)} siap")
+            }
+        }
+    }
+
+    private var qrisPreviewForCurrentScreen: ImageView? = null
+    private var qrisStatusForCurrentScreen: TextView? = null
 
     private fun createSectionLabel(text: String): TextView {
         return TextView(this).apply {
@@ -2268,6 +2455,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TABLE_COUNT = 10
+        private const val REQUEST_QRIS_IMAGE = 4101
         private val PS_TYPES = arrayOf("PS3", "PS4", "PS5")
         const val CIMPLI_PS_LOGO_BASE64 = "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"
     }
