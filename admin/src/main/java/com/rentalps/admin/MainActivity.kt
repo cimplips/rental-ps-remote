@@ -24,6 +24,7 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -147,7 +148,9 @@ class MainActivity : Activity() {
         TABLE,
         PS_SETTINGS,
         TABLE_SETTINGS,
-        TV_SETTINGS
+        TV_SETTINGS,
+        FNB,
+        TRANSACTIONS
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -321,7 +324,27 @@ class MainActivity : Activity() {
             root.addView(subtitle, matchParentWrapContent())
         }
 
-        setContentView(scroll)
+        val pageContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(245, 247, 250))
+        }
+        pageContainer.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+        pageContainer.addView(
+            createBottomNavigation(),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(72)
+            )
+        )
+
+        setContentView(pageContainer)
         if (screen == Screen.HOME) {
             val restoreY = lastScrollY
             scroll.post {
@@ -333,6 +356,150 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun createBottomNavigation(): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(8).toFloat()
+            setPadding(dp(6), dp(5), dp(6), dp(5))
+        }
+
+        fun addNavItem(icon: String, label: String, target: Screen) {
+            val selected = when (target) {
+                Screen.HOME -> screen == Screen.HOME
+                Screen.TABLE -> screen == Screen.TABLE
+                Screen.FNB -> screen == Screen.FNB
+                Screen.TRANSACTIONS -> screen == Screen.TRANSACTIONS
+                Screen.PS_SETTINGS, Screen.TABLE_SETTINGS, Screen.TV_SETTINGS ->
+                    screen == Screen.PS_SETTINGS || screen == Screen.TABLE_SETTINGS || screen == Screen.TV_SETTINGS
+            }
+
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(3), dp(1), dp(3), dp(1))
+                alpha = if (selected) 1f else 0.65f
+                setOnClickListener {
+                    when (target) {
+                        Screen.HOME -> {
+                            screen = Screen.HOME
+                            buildHomeScreen()
+                        }
+                        Screen.TABLE -> {
+                            selectedTable = selectedTable.coerceIn(1, TABLE_COUNT)
+                            screen = Screen.TABLE
+                            buildTableScreen()
+                        }
+                        Screen.FNB -> {
+                            screen = Screen.FNB
+                            buildFnbScreen()
+                        }
+                        Screen.TRANSACTIONS -> {
+                            screen = Screen.TRANSACTIONS
+                            buildTransactionsScreen()
+                        }
+                        Screen.PS_SETTINGS, Screen.TABLE_SETTINGS, Screen.TV_SETTINGS -> {
+                            screen = Screen.PS_SETTINGS
+                            buildSettingsMenuScreen()
+                        }
+                    }
+                }
+            }
+
+            item.addView(TextView(this).apply {
+                text = icon
+                textSize = 22f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.rgb(45, 52, 64))
+                contentDescription = label
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(32)))
+
+            item.addView(TextView(this).apply {
+                text = label
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(Color.rgb(55, 63, 75))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)))
+
+            bar.addView(
+                item,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            )
+        }
+
+        addNavItem("⌂", "Beranda", Screen.HOME)
+        addNavItem("PS", "PS", Screen.TABLE)
+        addNavItem("＋", "F&B", Screen.FNB)
+        addNavItem("▣", "Transaksi", Screen.TRANSACTIONS)
+        addNavItem("⚙", "Pengaturan", Screen.PS_SETTINGS)
+
+        return bar
+    }
+
+    private fun buildSettingsMenuScreen() {
+        buildBase("Pengaturan", "Kelola konfigurasi aplikasi dan TV")
+
+        val info = TextView(this).apply {
+            text = "Pilih pengaturan yang ingin diubah."
+            textSize = 14f
+            setTextColor(Color.rgb(110, 118, 130))
+            setPadding(dp(2), dp(4), dp(2), dp(12))
+        }
+        root.addView(info, matchParentWrapContent())
+
+        val psSettingsButton = createSoftButton("Harga & Durasi PS")
+        psSettingsButton.setOnClickListener {
+            screen = Screen.PS_SETTINGS
+            buildPsSettingsScreen()
+        }
+        root.addView(psSettingsButton, matchParentButton())
+
+        val tableSettingsButton = createSoftButton("Pengaturan Meja • PS & IP TV")
+        tableSettingsButton.setOnClickListener {
+            screen = Screen.TABLE_SETTINGS
+            buildTableSettingsScreen()
+        }
+        root.addView(tableSettingsButton, matchParentButton())
+
+        val tvSettingsButton = createSoftButton("Pengaturan Tampilan TV")
+        tvSettingsButton.setOnClickListener {
+            screen = Screen.TV_SETTINGS
+            buildTvSettingsScreen()
+        }
+        root.addView(tvSettingsButton, matchParentButton())
+    }
+
+    private fun buildFnbScreen() {
+        buildBase("F&B", "Kelola makanan dan minuman")
+
+        val empty = TextView(this).apply {
+            text = "Modul F&B siap menjadi menu utama.\nData produk F&B belum tersedia di sistem saat ini."
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(95, 102, 114))
+            setPadding(dp(24), dp(60), dp(24), dp(60))
+        }
+        root.addView(empty, matchParentWrapContent())
+    }
+
+    private fun buildTransactionsScreen() {
+        buildBase("Transaksi", "Riwayat dan transaksi pelanggan")
+
+        val empty = TextView(this).apply {
+            text = "Transaksi\n\nRiwayat transaksi akan tampil di sini setelah modul transaksi diaktifkan."
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(95, 102, 114))
+            setPadding(dp(24), dp(60), dp(24), dp(60))
+        }
+        root.addView(empty, matchParentWrapContent())
     }
 
     private fun loadCimpliPsLogo(): android.graphics.Bitmap? {
@@ -431,29 +598,6 @@ class MainActivity : Activity() {
         }
 
         root.addView(grid, matchParentWrapContent())
-
-        addSectionTitle(root, "Pengaturan")
-
-        val psSettingsButton = createSoftButton("Harga & Durasi PS")
-        psSettingsButton.setOnClickListener {
-            screen = Screen.PS_SETTINGS
-            buildPsSettingsScreen()
-        }
-        root.addView(psSettingsButton, matchParentButton())
-
-        val tableSettingsButton = createSoftButton("Pengaturan Meja • PS & IP TV")
-        tableSettingsButton.setOnClickListener {
-            screen = Screen.TABLE_SETTINGS
-            buildTableSettingsScreen()
-        }
-        root.addView(tableSettingsButton, matchParentButton())
-
-        val tvSettingsButton = createSoftButton("Pengaturan Tampilan TV")
-        tvSettingsButton.setOnClickListener {
-            screen = Screen.TV_SETTINGS
-            buildTvSettingsScreen()
-        }
-        root.addView(tvSettingsButton, matchParentButton())
 
         startStatusPolling()
         homeTimerHandler.post(homeTimerRunnable)
