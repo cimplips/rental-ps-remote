@@ -273,6 +273,26 @@ class MainActivity : Activity() {
 
         root.addView(summary, matchParentWrapContent())
 
+        val activeSessionCount = (1..TABLE_COUNT).count { isTableActive(it) }
+        val pauseAllButton = createSmallDashboardButton("Ⅱ  PAUSE SEMUA").apply {
+            isEnabled = activeSessionCount > 0
+            alpha = if (isEnabled) 1f else 0.55f
+            setOnClickListener {
+                showPauseAllConfirmation()
+            }
+        }
+        root.addView(
+            pauseAllButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(40)
+            ).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(6)
+                gravity = Gravity.END
+            }
+        )
+
         addSectionTitle(root, "Meja")
 
         val grid = LinearLayout(this).apply {
@@ -617,6 +637,72 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("BATAL", null)
             .show()
+    }
+
+    private fun showPauseAllConfirmation() {
+        val activeTables = (1..TABLE_COUNT)
+            .filter { isTableActive(it) }
+
+        if (activeTables.isEmpty()) {
+            showToast("Tidak ada sesi aktif yang perlu di-pause")
+            return
+        }
+
+        val tableNames = activeTables.joinToString(", ") {
+            String.format(Locale.US, "Meja %02d", it)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Pause Semua Sesi?")
+            .setMessage(
+                "Semua sesi aktif akan dijeda sementara. " +
+                    "Timer di HP dan TV akan berhenti.
+
+" +
+                    "$tableNames"
+            )
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("PAUSE SEMUA") { _, _ ->
+                pauseAllActiveSessions(activeTables)
+            }
+            .show()
+    }
+
+    private fun pauseAllActiveSessions(activeTables: List<Int>) {
+        val now = System.currentTimeMillis()
+        var pausedCount = 0
+
+        for (tableNumber in activeTables) {
+            val endTime = preferences.getLong(
+                tableKey(tableNumber, "session_end_time"),
+                0L
+            )
+            val remaining = maxOf(0L, endTime - now)
+
+            if (remaining <= 0L) {
+                continue
+            }
+
+            preferences.edit()
+                .putBoolean(tableKey(tableNumber, "active"), false)
+                .putBoolean(tableKey(tableNumber, "paused"), true)
+                .putLong(tableKey(tableNumber, "session_end_time"), 0L)
+                .putLong(tableKey(tableNumber, "paused_remaining"), remaining)
+                .apply()
+
+            sendCommandToTable(tableNumber, "PAUSE")
+            pausedCount++
+        }
+
+        if (pausedCount > 0) {
+            showToast("$pausedCount sesi berhasil di-pause")
+        } else {
+            showToast("Tidak ada sesi aktif yang bisa di-pause")
+        }
+
+        if (screen == Screen.HOME) {
+            buildHomeScreen()
+        }
     }
 
     private fun startTableSession(hours: Int) {
@@ -1763,6 +1849,21 @@ class MainActivity : Activity() {
                 formatting = false
             }
         })
+    }
+
+    private fun createSmallDashboardButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(80, 88, 100))
+            setBackgroundColor(Color.rgb(238, 240, 244))
+            isAllCaps = false
+            minHeight = dp(40)
+            minimumHeight = dp(40)
+            setPadding(dp(10), 0, dp(10), 0)
+            includeFontPadding = true
+        }
     }
 
     private fun createSoftButton(textValue: String): Button {
