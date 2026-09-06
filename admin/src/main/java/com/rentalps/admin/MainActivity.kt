@@ -2546,10 +2546,6 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-    }
-
     override fun onDestroy() {
         sessionTimer?.cancel()
         sessionTimer = null
