@@ -1654,23 +1654,33 @@ class MainActivity : Activity() {
     }
 
     private fun buildTvSettingsScreen() {
-        buildBase("Pengaturan Tampilan TV", "Pesan yang ditampilkan saat waktu sesi habis")
+        buildBase("Pengaturan Tampilan TV", "Atur tampilan yang muncul saat sesi berakhir")
+
+        val tableLabel = createSectionLabel("Pilih TV")
+        root.addView(tableLabel, matchParentWrapContent())
 
         val tableSpinner = Spinner(this)
         tableSpinner.adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_dropdown_item,
-            (1..TABLE_COUNT).map { String.format(Locale.US, "Meja %02d", it) }
+            (1..TABLE_COUNT).map { String.format(Locale.US, "%02d", it) }
         )
         root.addView(tableSpinner, matchParentWrapContent())
 
-        val titleInput = createInput("Judul, contoh WAKTU HABIS")
-        val messageInput = createInput("Pesan, contoh Silakan ke kasir")
-        val billInput = createNumberInput("Tagihan")
-        attachNominalFormatter(billInput)
-
+        val titleLabel = createSectionLabel("Judul waktu habis")
+        root.addView(titleLabel, matchParentWrapContent())
+        val titleInput = createInput("Contoh: WAKTU HABIS")
         root.addView(titleInput, matchParentWrapContent())
+
+        val messageLabel = createSectionLabel("Pesan")
+        root.addView(messageLabel, matchParentWrapContent())
+        val messageInput = createInput("Contoh: Silakan ke kasir")
         root.addView(messageInput, matchParentWrapContent())
+
+        val billLabel = createSectionLabel("Tagihan")
+        root.addView(billLabel, matchParentWrapContent())
+        val billInput = createNumberInput("Contoh: Rp10.000")
+        attachNominalFormatter(billInput)
         root.addView(billInput, matchParentWrapContent())
 
         val save = createPrimaryButton("SIMPAN KE TV")
@@ -1680,14 +1690,30 @@ class MainActivity : Activity() {
             val message = messageInput.text.toString().trim()
             val bill = billInput.text.toString().trim()
 
-            if (title.isNotEmpty()) sendCommandToTable(table, "SET_TITLE:$title")
-            if (message.isNotEmpty()) sendCommandToTable(table, "SET_MESSAGE:$message")
-            if (bill.isNotEmpty()) sendCommandToTable(table, "SET_BILL:$bill")
-            else sendCommandToTable(table, "CLEAR_BILL")
+            if (title.isNotEmpty()) {
+                sendCommandToTable(table, "SET_TITLE:$title")
+            }
+            if (message.isNotEmpty()) {
+                sendCommandToTable(table, "SET_MESSAGE:$message")
+            }
+            if (bill.isNotEmpty()) {
+                sendCommandToTable(table, "SET_BILL:$bill")
+            } else {
+                sendCommandToTable(table, "CLEAR_BILL")
+            }
 
-            showToast("Tampilan TV meja ${String.format(Locale.US, "%02d", table)} dikirim")
+            showToast("Tampilan TV ${String.format(Locale.US, "%02d", table)} disimpan")
         }
         root.addView(save, matchParentButton())
+    }
+
+    private fun createSectionLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), dp(10), dp(4), dp(4))
+        }
     }
 
     private fun scheduleHomeRefresh() {
