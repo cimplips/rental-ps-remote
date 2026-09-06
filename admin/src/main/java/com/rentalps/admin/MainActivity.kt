@@ -41,6 +41,9 @@ class MainActivity : Activity() {
     private val homeTimerViews =
         mutableMapOf<Int, TextView>()
 
+    private val tvConnectionStatus =
+        mutableMapOf<Int, Boolean>()
+
     private val homeTimerRunnable =
         object : Runnable {
             override fun run() {
@@ -356,6 +359,26 @@ class MainActivity : Activity() {
             }
         }
 
+        val connectionDot = TextView(this).apply {
+            text = "●"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(
+                if (isTvConnected(tableNumber)) {
+                    Color.rgb(55, 170, 95)
+                } else {
+                    Color.rgb(185, 190, 198)
+                }
+            )
+        }
+        card.addView(
+            connectionDot,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(24)
+            )
+        )
+
         card.addView(TextView(this).apply {
             text = String.format(Locale.US, "%02d", tableNumber)
             textSize = 26f
@@ -372,6 +395,19 @@ class MainActivity : Activity() {
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(80, 88, 100))
+        }, matchParentWrapContent())
+
+        card.addView(TextView(this).apply {
+            text = if (isTvConnected(tableNumber)) "TV Terhubung" else "TV Belum Terhubung"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(
+                if (isTvConnected(tableNumber)) {
+                    Color.rgb(55, 140, 88)
+                } else {
+                    Color.rgb(145, 150, 158)
+                }
+            )
         }, matchParentWrapContent())
 
         card.addView(TextView(this).apply {
@@ -949,11 +985,31 @@ class MainActivity : Activity() {
         val ipInput = createInput("IP Android TV, contoh 192.168.1.20")
         root.addView(ipInput, matchParentWrapContent())
 
+        val connectionStatus = TextView(this).apply {
+            textSize = 13f
+            setPadding(dp(4), dp(2), dp(4), dp(8))
+        }
+        root.addView(connectionStatus, matchParentWrapContent())
+
+        fun updateConnectionStatus(table: Int) {
+            if (getTableIp(table).isBlank()) {
+                connectionStatus.text = "● TV belum diatur"
+                connectionStatus.setTextColor(Color.rgb(145, 150, 158))
+            } else if (isTvConnected(table)) {
+                connectionStatus.text = "● TV terhubung"
+                connectionStatus.setTextColor(Color.rgb(55, 170, 95))
+            } else {
+                connectionStatus.text = "● TV belum terhubung / belum dicek"
+                connectionStatus.setTextColor(Color.rgb(145, 150, 158))
+            }
+        }
+
         fun load() {
             val table = tableSpinner.selectedItemPosition + 1
             val ps = getTablePsType(table)
             psSpinner.setSelection(PS_TYPES.indexOf(ps).coerceAtLeast(0))
             ipInput.setText(getTableIp(table))
+            updateConnectionStatus(table)
         }
 
         load()
@@ -982,11 +1038,17 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
 
+            val oldIp = getTableIp(table)
+
             preferences.edit()
                 .putString(tableKey(table, "ps_type"), ps)
                 .putString(tableKey(table, "tv_ip"), ip)
                 .apply()
 
+            if (oldIp != ip) {
+                tvConnectionStatus[table] = false
+            }
+            updateConnectionStatus(table)
             showToast(String.format(Locale.US, "Meja %02d tersimpan", table))
         }
         root.addView(save, matchParentButton())
@@ -1028,8 +1090,13 @@ class MainActivity : Activity() {
                 }
 
                 runOnUiThread {
+                    tvConnectionStatus[table] = success
                     testConnection.isEnabled = true
                     testConnection.text = "TEST KONEKSI TV"
+                    updateConnectionStatus(table)
+                    if (screen == Screen.HOME) {
+                        scheduleHomeRefresh()
+                    }
                     if (success) {
                         showToast(String.format(Locale.US, "TV Meja %02d terhubung", table))
                     } else {
@@ -1136,6 +1203,10 @@ class MainActivity : Activity() {
         val host = getTableIp(tableNumber)
 
         if (host.isBlank()) {
+            tvConnectionStatus[tableNumber] = false
+            if (screen == Screen.HOME) {
+                scheduleHomeRefresh()
+            }
             return
         }
 
@@ -1156,16 +1227,26 @@ class MainActivity : Activity() {
                                 .orEmpty()
 
                         runOnUiThread {
+                            val connected = response.startsWith("STATUS|", ignoreCase = true)
+                            tvConnectionStatus[tableNumber] = connected
                             applyTvStatus(
                                 tableNumber = tableNumber,
                                 response = response,
                                 rebuildWhenChanged = rebuildWhenChanged
                             )
+                            if (rebuildWhenChanged && screen == Screen.HOME) {
+                                scheduleHomeRefresh()
+                            }
                         }
                     }
                 }
             } catch (_: Exception) {
-                // TV belum dapat dihubungi. Data lokal tetap dipertahankan.
+                runOnUiThread {
+                    tvConnectionStatus[tableNumber] = false
+                    if (rebuildWhenChanged && screen == Screen.HOME) {
+                        scheduleHomeRefresh()
+                    }
+                }
             }
         }
     }
@@ -1282,6 +1363,9 @@ class MainActivity : Activity() {
             tableKey(tableNumber, "ps_type"),
             "PS3"
         ) ?: "PS3"
+
+    private fun isTvConnected(tableNumber: Int): Boolean =
+        tvConnectionStatus[tableNumber] == true && getTableIp(tableNumber).isNotBlank()
 
     private fun getTableIp(tableNumber: Int): String =
         preferences.getString(
