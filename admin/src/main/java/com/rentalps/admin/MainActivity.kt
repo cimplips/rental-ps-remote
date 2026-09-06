@@ -616,8 +616,8 @@ class MainActivity : Activity() {
 
         val incomeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(17), dp(20), dp(17))
-            background = roundedBackground(Color.WHITE, dp(22))
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            background = roundedBackground(Color.rgb(24, 32, 47), dp(24))
             elevation = dp(2).toFloat()
         }
         val incomeTop = LinearLayout(this).apply {
@@ -628,15 +628,15 @@ class MainActivity : Activity() {
             text = "PENGHASILAN HARI INI"
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(120, 128, 141))
+            setTextColor(Color.rgb(178, 188, 203))
         }, LinearLayout.LayoutParams(0, dp(24), 1f))
         incomeTop.addView(TextView(this@MainActivity).apply {
             text = "Rp"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(55, 125, 88))
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            background = roundedBackground(Color.rgb(235, 248, 240), dp(10))
+            background = roundedBackground(Color.rgb(55, 125, 88), dp(10))
             setPadding(dp(9), dp(5), dp(9), dp(5))
         }, LinearLayout.LayoutParams(dp(38), dp(28)))
         incomeCard.addView(incomeTop, matchParentWrapContent())
@@ -644,16 +644,25 @@ class MainActivity : Activity() {
             text = formatRupiah(getTodayIncome())
             textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(31, 42, 55))
-            setPadding(0, dp(3), 0, 0)
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(5), 0, 0)
         }, matchParentWrapContent())
         incomeCard.addView(TextView(this@MainActivity).apply {
             text = "Akumulasi sesi yang selesai hari ini"
             textSize = 11f
-            setTextColor(Color.rgb(145, 151, 161))
+            setTextColor(Color.rgb(168, 178, 193))
             setPadding(0, dp(3), 0, 0)
         }, matchParentWrapContent())
         root.addView(incomeCard, matchParentWrapContent().apply { topMargin = dp(12) })
+
+        val quickRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        quickRow.addView(createQuickAction("＋", "Mulai sesi") { selectScreen(Screen.HOME) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
+        quickRow.addView(createQuickAction("▣", "Transaksi") { selectScreen(Screen.TRANSACTIONS) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
+        quickRow.addView(createQuickAction("⚙", "Pengaturan") { selectScreen(Screen.SETTINGS) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
+        root.addView(quickRow, matchParentWrapContent())
 
         val activeCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
         val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
@@ -707,6 +716,33 @@ class MainActivity : Activity() {
 
         startStatusPolling()
         homeTimerHandler.post(homeTimerRunnable)
+    }
+
+    private fun createQuickAction(icon: String, label: String, action: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), 0, dp(10), 0)
+            background = roundedBackground(Color.WHITE, dp(16))
+            elevation = dp(1).toFloat()
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { action() }
+            addView(TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(45, 57, 73))
+                background = roundedBackground(Color.rgb(239, 242, 246), dp(12))
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 10f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(70, 79, 92))
+                setPadding(dp(7), 0, 0, 0)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
     }
 
     private fun createDashboardStat(label: String, value: String, valueColor: Int): LinearLayout {
