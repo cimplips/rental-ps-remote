@@ -3,11 +3,13 @@ package com.rentalps.tv
 import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.util.Base64
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -15,6 +17,7 @@ import android.view.Window
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -43,6 +46,7 @@ class MainActivity : Activity() {
     private var title = "WAKTU HABIS"
     private var message = "Silakan ke kasir"
     private var bill = ""
+    private var qrisImageBase64 = ""
 
     private var timerOverlayUntilMillis = 0L
 
@@ -246,6 +250,12 @@ class MainActivity : Activity() {
         bill =
             preferences.getString(
                 "bill",
+                ""
+            ) ?: ""
+
+        qrisImageBase64 =
+            preferences.getString(
+                "qris_image_base64",
                 ""
             ) ?: ""
     }
@@ -821,6 +831,28 @@ class MainActivity : Activity() {
                     )
                 }
 
+            val qrisImageView =
+                ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    adjustViewBounds = true
+                    setPadding(0, dp(12), 0, dp(12))
+                    contentDescription = "QRIS"
+                }
+
+            var qrisImageVisible = false
+            if (qrisImageBase64.isNotBlank()) {
+                try {
+                    val imageBytes = Base64.decode(qrisImageBase64, Base64.DEFAULT)
+                    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                    if (bitmap != null) {
+                        qrisImageView.setImageBitmap(bitmap)
+                        qrisImageVisible = true
+                    }
+                } catch (_: Exception) {
+                    qrisImageVisible = false
+                }
+            }
+
             val billText =
                 TextView(this).apply {
                     text =
@@ -850,6 +882,19 @@ class MainActivity : Activity() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
+
+            if (qrisImageVisible) {
+                content.addView(
+                    qrisImageView,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(300)
+                    ).apply {
+                        topMargin = dp(8)
+                        bottomMargin = dp(8)
+                    }
+                )
+            }
 
             content.addView(
                 billText,
@@ -983,6 +1028,10 @@ class MainActivity : Activity() {
             .putString(
                 "bill",
                 bill
+            )
+            .putString(
+                "qris_image_base64",
+                qrisImageBase64
             )
             .apply()
     }
