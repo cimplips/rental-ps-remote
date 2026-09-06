@@ -1202,6 +1202,7 @@ class MainActivity : Activity() {
                 when (screen) {
                     Screen.HOME -> buildHomeScreen()
                     Screen.TABLE -> buildTableScreen()
+                    else -> Unit
                 }
             }
             showToast("IP TV Meja $tableLabel belum diatur")
@@ -1223,6 +1224,7 @@ class MainActivity : Activity() {
                     when (screen) {
                         Screen.HOME -> buildHomeScreen()
                         Screen.TABLE -> buildTableScreen()
+                        else -> Unit
                     }
                 }
 
@@ -1236,6 +1238,7 @@ class MainActivity : Activity() {
                     when (screen) {
                         Screen.HOME -> buildHomeScreen()
                         Screen.TABLE -> buildTableScreen()
+                        else -> Unit
                     }
                     showToast("Gagal terhubung ke TV meja $tableLabel")
                 }
