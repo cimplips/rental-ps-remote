@@ -187,12 +187,27 @@ class MainActivity : Activity() {
     private fun buildBase(titleText: String, subtitleText: String? = null) {
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.rgb(245, 247, 250))
-            isFillViewport = true
+            isFillViewport = false
             isSmoothScrollingEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_ALWAYS
             clipToPadding = false
             setPadding(0, 0, 0, dp(24))
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                        false
+                    }
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                        false
+                    }
+                    else -> false
+                }
+            }
         }
 
         root = LinearLayout(this).apply {
