@@ -659,9 +659,9 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        quickRow.addView(createQuickAction("＋", "Mulai sesi") { selectScreen(Screen.HOME) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
-        quickRow.addView(createQuickAction("▣", "Transaksi") { selectScreen(Screen.TRANSACTIONS) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
-        quickRow.addView(createQuickAction("⚙", "Pengaturan") { selectScreen(Screen.SETTINGS) }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
+        quickRow.addView(createQuickAction("＋", "Mulai sesi") { screen = Screen.TABLE; buildTableScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
+        quickRow.addView(createQuickAction("▣", "Transaksi") { screen = Screen.TRANSACTIONS; buildTransactionsScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
+        quickRow.addView(createQuickAction("⚙", "Pengaturan") { screen = Screen.PS_SETTINGS; buildSettingsMenuScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
         root.addView(quickRow, matchParentWrapContent())
 
         val activeCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
