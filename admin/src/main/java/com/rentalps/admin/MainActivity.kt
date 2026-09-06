@@ -138,7 +138,9 @@ class MainActivity : Activity() {
     private var isPaused = false
 
     private lateinit var root: LinearLayout
+    private var homeScrollView: ScrollView? = null
     private var lastScrollY = 0
+    private var restoringHomeScroll = false
 
     private enum class Screen {
         HOME,
@@ -162,31 +164,23 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-
         when (screen) {
             Screen.TABLE -> {
                 restoreTableSession(selectedTable)
                 syncTableStatus(selectedTable, rebuildWhenChanged = true)
-                startStatusPolling()
             }
-
             Screen.HOME -> {
-                // HOME boleh dibangun ulang setelah Activity kembali terlihat agar
-                // status/timer dashboard segar. Jangan memaksa kembali ke HOME
-                // dari halaman pengaturan, karena onResume juga dipanggil setelah
-                // kembali dari file picker QRIS atau Activity lain.
-                buildHomeScreen()
+                // Jangan rebuild dashboard pada setiap onResume. Rebuild ScrollView
+                // menyebabkan posisi scroll berkedip/lompat ketika Activity mendapat
+                // focus kembali (termasuk setelah dialog/file picker).
                 requestInitialTvRecovery()
+                homeScrollView?.post {
+                    if (screen == Screen.HOME) {
+                        homeScrollView?.scrollTo(0, lastScrollY)
+                    }
+                }
             }
-
-            Screen.PS_SETTINGS,
-            Screen.TABLE_SETTINGS,
-            Screen.TV_SETTINGS -> {
-                // Pertahankan halaman yang sedang dibuka.
-                // Tidak perlu polling saat berada di halaman pengaturan.
-                stopStatusPolling()
-                stopHomeTimer()
-            }
+            else -> Unit
         }
     }
 
@@ -259,14 +253,16 @@ class MainActivity : Activity() {
         val scroll = TouchScrollView(this).apply {
             setBackgroundColor(Color.rgb(245, 247, 250))
             isFillViewport = false
-            isSmoothScrollingEnabled = true
+            // Dashboard memakai scrollTo() untuk mempertahankan posisi. Smooth
+            // scrolling di sini justru dapat membuat posisi terlihat bergerak sendiri.
+            isSmoothScrollingEnabled = false
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_ALWAYS
             clipToPadding = false
             setPadding(0, 0, 0, dp(24))
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
             setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                if (screen == Screen.HOME) {
+                if (screen == Screen.HOME && !restoringHomeScroll) {
                     lastScrollY = scrollY
                 }
             }
@@ -278,6 +274,9 @@ class MainActivity : Activity() {
         }
 
         scroll.addView(root)
+        if (screen == Screen.HOME) {
+            homeScrollView = scroll
+        }
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -323,9 +322,15 @@ class MainActivity : Activity() {
         }
 
         setContentView(scroll)
-        if (screen == Screen.HOME && lastScrollY > 0) {
+        if (screen == Screen.HOME) {
+            val restoreY = lastScrollY
             scroll.post {
-                scroll.scrollTo(0, lastScrollY)
+                if (screen != Screen.HOME) return@post
+                restoringHomeScroll = true
+                scroll.scrollTo(0, restoreY.coerceAtLeast(0))
+                scroll.postOnAnimation {
+                    restoringHomeScroll = false
+                }
             }
         }
     }
@@ -1934,6 +1939,14 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        // Simpan posisi sebelum Activity kehilangan focus. Jangan rebuild UI di sini.
+        if (screen == Screen.HOME) {
+            lastScrollY = homeScrollView?.scrollY ?: lastScrollY
+        }
+        super.onPause()
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -1991,10 +2004,20 @@ class MainActivity : Activity() {
 
         statusHandler.postDelayed({
             homeRefreshScheduled = false
-            if (screen == Screen.HOME) {
-                buildHomeScreen()
+            if (screen != Screen.HOME) return@postDelayed
+
+            // Jangan mengganti seluruh hierarchy saat jari masih berada di layar.
+            // Replacing ScrollView ketika sedang disentuh adalah penyebab utama
+            // efek berkedip dan scroll lompat acak.
+            val currentScroll = homeScrollView
+            if (currentScroll != null && currentScroll.isPressed) {
+                scheduleHomeRefresh()
+                return@postDelayed
             }
-        }, 150L)
+
+            lastScrollY = currentScroll?.scrollY ?: lastScrollY
+            buildHomeScreen()
+        }, 350L)
     }
 
     private fun startStatusPolling() {
@@ -2524,14 +2547,6 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        // Hentikan pekerjaan UI berkala ketika Activity tidak terlihat.
-        // State sesi tetap aman di SharedPreferences dan akan dipulihkan
-        // berdasarkan waktu akhir/remaining saat onResume().
-        stopStatusPolling()
-        stopHomeTimer()
-        sessionTimer?.cancel()
-        sessionTimer = null
-
         super.onPause()
     }
 
