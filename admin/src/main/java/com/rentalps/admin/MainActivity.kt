@@ -348,7 +348,7 @@ class MainActivity : Activity() {
         }
         root.addView(psSettingsButton, matchParentButton())
 
-        val tableSettingsButton = createSoftButton("Pengaturan Meja")
+        val tableSettingsButton = createSoftButton("Pengaturan Meja • PS & IP TV")
         tableSettingsButton.setOnClickListener {
             screen = Screen.TABLE_SETTINGS
             buildTableSettingsScreen()
@@ -410,14 +410,11 @@ class MainActivity : Activity() {
                     else -> Color.WHITE
                 }
             )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                selectedTable = tableNumber
-                screen = Screen.TABLE
-                restoreTableSession(tableNumber)
-                buildTableScreen()
-            }
+            // Kartu meja hanya sebagai tampilan/status.
+            // Detail meja tidak lagi dibuka dengan mengetuk kartu.
+            // Pengaturan PS dan IP TV dilakukan melalui tombol Pengaturan Meja di bagian bawah dashboard.
+            isClickable = false
+            isFocusable = false
         }
 
         // Indikator koneksi tetap kecil di kanan atas kartu.
