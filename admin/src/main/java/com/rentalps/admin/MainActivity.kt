@@ -1456,15 +1456,154 @@ class MainActivity : Activity() {
     }
 
     private fun buildTableSettingsScreen() {
-        buildBase("Pengaturan Meja", "Tentukan PS dan IP Android TV untuk setiap meja")
-
-        val tableSpinner = Spinner(this)
-        tableSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            (1..TABLE_COUNT).map { String.format(Locale.US, "Meja %02d", it) }
+        buildBase(
+            "Pengaturan Meja",
+            "Atur jenis PS dan IP Android TV setiap meja"
         )
-        root.addView(tableSpinner, matchParentWrapContent())
+
+        val scrollInfo = TextView(this).apply {
+            text = "Pilih meja untuk mengubah PS, IP TV, dan tes koneksi."
+            textSize = 13f
+            setTextColor(Color.rgb(120, 125, 135))
+            setPadding(dp(2), dp(0), dp(2), dp(10))
+        }
+        root.addView(scrollInfo, matchParentWrapContent())
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        for (tableNumber in 1..TABLE_COUNT) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setBackgroundColor(Color.WHITE)
+            }
+
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val number = TextView(this).apply {
+                text = String.format(Locale.US, "%02d", tableNumber)
+                textSize = 24f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.rgb(45, 48, 55))
+                gravity = Gravity.CENTER
+            }
+            header.addView(
+                number,
+                LinearLayout.LayoutParams(dp(48), dp(42))
+            )
+
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), 0, dp(8), 0)
+            }
+
+            val psText = TextView(this@MainActivity).apply {
+                text = getTablePsType(tableNumber)
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.rgb(55, 58, 66))
+            }
+
+            val ipText = TextView(this@MainActivity).apply {
+                text = if (getTableIp(tableNumber).isBlank()) {
+                    "IP TV belum diatur"
+                } else {
+                    getTableIp(tableNumber)
+                }
+                textSize = 12f
+                setTextColor(Color.rgb(125, 130, 140))
+            }
+
+            val statusText = TextView(this@MainActivity).apply {
+                textSize = 11f
+                setPadding(0, dp(2), 0, 0)
+            }
+
+            fun refreshStatus() {
+                if (getTableIp(tableNumber).isBlank()) {
+                    statusText.text = "● BELUM DIATUR"
+                    statusText.setTextColor(Color.rgb(145, 150, 158))
+                } else {
+                    when (getTvConnectionState(tableNumber)) {
+                        TvConnectionState.CONNECTED -> {
+                            statusText.text = "● CONNECT"
+                            statusText.setTextColor(Color.rgb(55, 170, 95))
+                        }
+                        TvConnectionState.DISCONNECTED -> {
+                            statusText.text = "● OFFLINE"
+                            statusText.setTextColor(Color.rgb(190, 90, 90))
+                        }
+                        TvConnectionState.UNCHECKED -> {
+                            statusText.text = "● BELUM DICEK"
+                            statusText.setTextColor(Color.rgb(145, 150, 158))
+                        }
+                    }
+                }
+            }
+
+            info.addView(psText, matchParentWrapContent())
+            info.addView(ipText, matchParentWrapContent())
+            info.addView(statusText, matchParentWrapContent())
+
+            header.addView(
+                info,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+
+            val editButton = createSmallDashboardButton("EDIT")
+            editButton.setOnClickListener {
+                showTableEditDialog(
+                    tableNumber = tableNumber,
+                    onSaved = {
+                        psText.text = getTablePsType(tableNumber)
+                        ipText.text = if (getTableIp(tableNumber).isBlank()) {
+                            "IP TV belum diatur"
+                        } else {
+                            getTableIp(tableNumber)
+                        }
+                        refreshStatus()
+                    }
+                )
+            }
+            header.addView(
+                editButton,
+                LinearLayout.LayoutParams(dp(64), dp(32))
+            )
+
+            card.addView(header, matchParentWrapContent())
+            list.addView(
+                card,
+                matchParentWrapContent().apply {
+                    bottomMargin = dp(8)
+                }
+            )
+
+            refreshStatus()
+        }
+
+        root.addView(list, matchParentWrapContent())
+
+        val back = createSoftButton("KEMBALI")
+        back.setOnClickListener {
+            screen = Screen.HOME
+            buildHomeScreen()
+        }
+        root.addView(back, matchParentButton())
+    }
+
+    private fun showTableEditDialog(
+        tableNumber: Int,
+        onSaved: () -> Unit
+    ) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(4), dp(20), dp(4))
+        }
 
         val psSpinner = Spinner(this)
         psSpinner.adapter = ArrayAdapter(
@@ -1472,141 +1611,50 @@ class MainActivity : Activity() {
             android.R.layout.simple_spinner_dropdown_item,
             PS_TYPES
         )
-        root.addView(psSpinner, matchParentWrapContent())
+        psSpinner.setSelection(
+            PS_TYPES.indexOf(getTablePsType(tableNumber)).coerceAtLeast(0)
+        )
+        container.addView(psSpinner, matchParentWrapContent())
 
         val ipInput = createInput("IP Android TV, contoh 192.168.1.20")
-        root.addView(ipInput, matchParentWrapContent())
+        ipInput.setText(getTableIp(tableNumber))
+        container.addView(ipInput, matchParentWrapContent())
 
-        val connectionStatus = TextView(this).apply {
-            textSize = 13f
-            setPadding(dp(4), dp(2), dp(4), dp(8))
-        }
-        root.addView(connectionStatus, matchParentWrapContent())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(String.format(Locale.US, "Pengaturan %02d", tableNumber))
+            .setView(container)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("SIMPAN", null)
+            .create()
 
-        fun updateConnectionStatus(table: Int) {
-            if (getTableIp(table).isBlank()) {
-                connectionStatus.text = "● TV belum diatur"
-                connectionStatus.setTextColor(Color.rgb(145, 150, 158))
-            } else {
-                when (getTvConnectionState(table)) {
-                    TvConnectionState.CONNECTED -> {
-                        connectionStatus.text = "● TV terhubung"
-                        connectionStatus.setTextColor(Color.rgb(55, 170, 95))
-                    }
-                    TvConnectionState.DISCONNECTED -> {
-                        connectionStatus.text = "● TV tidak terhubung"
-                        connectionStatus.setTextColor(Color.rgb(190, 90, 90))
-                    }
-                    TvConnectionState.UNCHECKED -> {
-                        connectionStatus.text = "● Belum dicek"
-                        connectionStatus.setTextColor(Color.rgb(145, 150, 158))
-                    }
-                }
-            }
-        }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val ps = PS_TYPES[psSpinner.selectedItemPosition]
+                val ip = ipInput.text.toString().trim()
 
-        fun load() {
-            val table = tableSpinner.selectedItemPosition + 1
-            val ps = getTablePsType(table)
-            psSpinner.setSelection(PS_TYPES.indexOf(ps).coerceAtLeast(0))
-            ipInput.setText(getTableIp(table))
-            updateConnectionStatus(table)
-        }
-
-        load()
-
-        tableSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: android.widget.AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                load()
-            }
-
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-        }
-
-        val save = createPrimaryButton("SIMPAN")
-        save.setOnClickListener {
-            val table = tableSpinner.selectedItemPosition + 1
-            val ps = PS_TYPES[psSpinner.selectedItemPosition]
-            val ip = ipInput.text.toString().trim()
-
-            if (ip.isBlank()) {
-                showToast("IP Android TV belum diisi")
-                return@setOnClickListener
-            }
-
-            val oldIp = getTableIp(table)
-
-            preferences.edit()
-                .putString(tableKey(table, "ps_type"), ps)
-                .putString(tableKey(table, "tv_ip"), ip)
-                .apply()
-
-            if (oldIp != ip) {
-                tvConnectionStatus[table] = TvConnectionState.UNCHECKED
-            }
-            updateConnectionStatus(table)
-            showToast(String.format(Locale.US, "Meja %02d tersimpan", table))
-        }
-        root.addView(save, matchParentButton())
-
-        val testConnection = createSoftButton("TEST KONEKSI TV")
-        testConnection.setOnClickListener {
-            val table = tableSpinner.selectedItemPosition + 1
-            val ip = ipInput.text.toString().trim()
-
-            if (ip.isBlank()) {
-                showToast("IP Android TV belum diisi")
-                return@setOnClickListener
-            }
-
-            testConnection.isEnabled = false
-            testConnection.text = "MENGECEK..."
-
-            executor.execute {
-                var success = false
-                try {
-                    Socket(ip, 8787).use { socket ->
-                        socket.soTimeout = 2500
-                        PrintWriter(socket.getOutputStream(), true).use { writer ->
-                            writer.println("STATUS")
-                            writer.flush()
-
-                            val response =
-                                socket.getInputStream()
-                                    .bufferedReader()
-                                    .readLine()
-                                    ?.trim()
-                                    .orEmpty()
-
-                            success = response.startsWith("STATUS|", ignoreCase = true)
-                        }
-                    }
-                } catch (_: Exception) {
-                    success = false
+                if (ip.isBlank()) {
+                    ipInput.error = "IP Android TV wajib diisi"
+                    return@setOnClickListener
                 }
 
-                runOnUiThread {
-                    tvConnectionStatus[table] = if (success) TvConnectionState.CONNECTED else TvConnectionState.DISCONNECTED
-                    testConnection.isEnabled = true
-                    testConnection.text = "TEST KONEKSI TV"
-                    updateConnectionStatus(table)
-                    if (screen == Screen.HOME) {
-                        scheduleHomeRefresh()
-                    }
-                    if (success) {
-                        showToast(String.format(Locale.US, "TV Meja %02d terhubung", table))
-                    } else {
-                        showToast(String.format(Locale.US, "TV Meja %02d tidak dapat dihubungi", table))
-                    }
+                val oldIp = getTableIp(tableNumber)
+
+                preferences.edit()
+                    .putString(tableKey(tableNumber, "ps_type"), ps)
+                    .putString(tableKey(tableNumber, "tv_ip"), ip)
+                    .apply()
+
+                if (oldIp != ip) {
+                    tvConnectionStatus[tableNumber] = TvConnectionState.UNCHECKED
                 }
+
+                onSaved()
+                showToast(String.format(Locale.US, "Pengaturan %02d tersimpan", tableNumber))
+                dialog.dismiss()
             }
         }
-        root.addView(testConnection, matchParentButton())
+
+        dialog.show()
     }
 
     private fun buildTvSettingsScreen() {
