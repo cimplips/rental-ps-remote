@@ -56,6 +56,10 @@ class MainActivity : Activity() {
     private val statusRequestGeneration =
         mutableMapOf<Int, Long>()
 
+    // Satu command untuk satu meja diproses berurutan agar START/ADD/PAUSE/RESUME/STOP
+    // tidak saling bertabrakan ketika tombol ditekan cepat atau polling berjalan bersamaan.
+    private val tableCommandLocks = Array(11) { Any() }
+
     private val homeTimerRunnable =
         object : Runnable {
             override fun run() {
@@ -1355,7 +1359,8 @@ class MainActivity : Activity() {
         }
 
         executor.execute {
-            try {
+            synchronized(tableCommandLocks[tableNumber.coerceIn(0, tableCommandLocks.lastIndex)]) {
+                try {
                 Socket(host, 8787).use { socket ->
                     socket.soTimeout = 2500
                     PrintWriter(socket.getOutputStream(), true).use { writer ->
@@ -1395,6 +1400,7 @@ class MainActivity : Activity() {
                     }
                     showToast("Gagal terhubung ke TV meja $tableLabel")
                 }
+            }
             }
         }
     }
