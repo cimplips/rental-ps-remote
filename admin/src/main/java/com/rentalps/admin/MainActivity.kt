@@ -288,6 +288,7 @@ class MainActivity : Activity() {
         val pauseAllButton = createSmallDashboardButton(
             if (activeSessionCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL"
         ).apply {
+            contentDescription = if (activeSessionCount > 0) "Pause semua sesi" else "Resume semua sesi"
             isEnabled = activeSessionCount > 0 || pausedSessionCount > 0
             alpha = if (isEnabled) 1f else 0.55f
             setOnClickListener {
@@ -301,12 +302,12 @@ class MainActivity : Activity() {
 
         topBar.addView(
             pauseAllButton,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34))
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32))
         )
 
         root.addView(
             topBar,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)).apply {
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)).apply {
                 topMargin = dp(2)
                 bottomMargin = dp(8)
             }
@@ -439,17 +440,17 @@ class MainActivity : Activity() {
 
         connectionRow.addView(TextView(this).apply {
             text = when (connectionState) {
-                TvConnectionState.CONNECTED -> "Terhubung"
-                TvConnectionState.DISCONNECTED -> "Tidak terhubung"
-                TvConnectionState.UNCHECKED -> "Belum dicek"
+                TvConnectionState.CONNECTED -> "CONNECT"
+                TvConnectionState.DISCONNECTED -> "OFFLINE"
+                TvConnectionState.UNCHECKED -> "CONNECT"
             }
-            textSize = 8.5f
+            textSize = 8f
             setTextColor(Color.rgb(120, 126, 137))
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(18)))
 
         card.addView(
             connectionRow,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20))
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(18))
         )
 
         // Nomor meja dibuat besar dan rata tengah.
@@ -460,7 +461,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(40, 47, 58))
             setPadding(0, dp(1), 0, 0)
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
 
         // Jenis PS tetap mengikuti pengaturan meja.
         card.addView(TextView(this).apply {
@@ -469,7 +470,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(90, 97, 108))
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(25)))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)))
 
         val timerText = TextView(this).apply {
             text = when {
@@ -477,7 +478,7 @@ class MainActivity : Activity() {
                 paused -> "PAUSE  •  ${formatTime(remaining)}"
                 else -> "--:--:--"
             }
-            textSize = if (active || paused) 22f else 16f
+            textSize = if (active || paused) 21f else 15f
             typeface = if (active || paused) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             gravity = Gravity.CENTER
             setTextColor(
@@ -499,7 +500,7 @@ class MainActivity : Activity() {
         }
 
         if (!active && !paused) {
-            val startButton = createPrimaryButton("▶  MULAI").apply {
+            val startButton = createSmallDashboardButton("▶ MULAI").apply {
                 setOnClickListener {
                     selectedTable = tableNumber
                     restoreTableSession(tableNumber)
@@ -508,7 +509,7 @@ class MainActivity : Activity() {
             }
             card.addView(
                 startButton,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)).apply {
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)).apply {
                     topMargin = dp(2)
                 }
             )
@@ -544,13 +545,13 @@ class MainActivity : Activity() {
                 }
             }
 
-            actionRow.addView(addButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { rightMargin = dp(3) })
-            actionRow.addView(pauseButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
-            actionRow.addView(finishButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(3) })
+            actionRow.addView(addButton, LinearLayout.LayoutParams(0, dp(34), 1f).apply { rightMargin = dp(3) })
+            actionRow.addView(pauseButton, LinearLayout.LayoutParams(0, dp(34), 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
+            actionRow.addView(finishButton, LinearLayout.LayoutParams(0, dp(34), 1f).apply { leftMargin = dp(3) })
 
             card.addView(
                 actionRow,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38))
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34))
             )
         }
 
@@ -645,7 +646,7 @@ class MainActivity : Activity() {
         card.addView(statusText, matchParentWrapContent())
 
         if (!isCurrentTableActive() && !isPaused) {
-            val startButton = createPrimaryButton("▶  MULAI")
+            val startButton = createSmallDashboardButton("▶ MULAI")
             startButton.setOnClickListener {
                 showStartDurationDialog()
             }
