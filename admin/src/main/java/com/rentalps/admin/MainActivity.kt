@@ -9,7 +9,9 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
@@ -927,6 +929,7 @@ class MainActivity : Activity() {
         val nameInput = createInput("Nama")
         val durationInput = createNumberInput("Durasi dalam menit")
         val priceInput = createNumberInput("Harga dalam rupiah")
+        attachNominalFormatter(priceInput)
 
         root.addView(nameInput, matchParentWrapContent())
         root.addView(durationInput, matchParentWrapContent())
@@ -1140,7 +1143,8 @@ class MainActivity : Activity() {
 
         val titleInput = createInput("Judul, contoh WAKTU HABIS")
         val messageInput = createInput("Pesan, contoh Silakan ke kasir")
-        val billInput = createInput("Tagihan")
+        val billInput = createNumberInput("Tagihan")
+        attachNominalFormatter(billInput)
 
         root.addView(titleInput, matchParentWrapContent())
         root.addView(messageInput, matchParentWrapContent())
@@ -1512,6 +1516,47 @@ class MainActivity : Activity() {
         createInput(hintText).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
         }
+
+    private fun attachNominalFormatter(input: EditText) {
+        var formatting = false
+
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(
+                s: CharSequence?,
+                start: Int,
+                count: Int,
+                after: Int
+            ) = Unit
+
+            override fun onTextChanged(
+                s: CharSequence?,
+                start: Int,
+                before: Int,
+                count: Int
+            ) = Unit
+
+            override fun afterTextChanged(s: Editable?) {
+                if (formatting) return
+
+                val raw = s?.toString().orEmpty()
+                    .replace(".", "")
+                    .replace(",", "")
+                    .filter { it.isDigit() }
+
+                if (raw.isEmpty()) return
+
+                val number = raw.toLongOrNull() ?: return
+                val formatted = formatRupiah(number)
+
+                if (formatted == s.toString()) return
+
+                formatting = true
+                input.setText(formatted)
+                input.setSelection(formatted.length)
+                formatting = false
+            }
+        })
+    }
 
     private fun createSoftButton(textValue: String): Button {
         return Button(this).apply {
