@@ -9,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.util.Base64
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
@@ -362,9 +363,16 @@ class MainActivity : Activity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE)
-            elevation = dp(8).toFloat()
-            setPadding(dp(6), dp(5), dp(6), dp(5))
+            setPadding(dp(8), dp(7), dp(8), dp(7))
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadii = floatArrayOf(
+                    dp(18).toFloat(), dp(18).toFloat(),
+                    dp(18).toFloat(), dp(18).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
+            }
+            elevation = dp(10).toFloat()
         }
 
         fun addNavItem(icon: String, label: String, target: Screen) {
@@ -382,8 +390,18 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
                 isClickable = true
                 isFocusable = true
-                setPadding(dp(3), dp(1), dp(3), dp(1))
-                alpha = if (selected) 1f else 0.65f
+                setPadding(dp(4), 0, dp(4), 0)
+                background = if (selected) {
+                    GradientDrawable().apply {
+                        setColor(Color.rgb(235, 241, 255))
+                        cornerRadius = dp(14).toFloat()
+                    }
+                } else {
+                    GradientDrawable().apply {
+                        setColor(Color.TRANSPARENT)
+                        cornerRadius = dp(14).toFloat()
+                    }
+                }
                 setOnClickListener {
                     when (target) {
                         Screen.HOME -> {
@@ -411,29 +429,46 @@ class MainActivity : Activity() {
                 }
             }
 
-            item.addView(TextView(this).apply {
+            val iconView = TextView(this).apply {
                 text = icon
-                textSize = 22f
+                textSize = if (selected) 22f else 21f
                 gravity = Gravity.CENTER
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.rgb(45, 52, 64))
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                setTextColor(if (selected) Color.rgb(37, 99, 235) else Color.rgb(105, 113, 126))
+                includeFontPadding = false
                 contentDescription = label
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(32)))
+            }
+            item.addView(
+                iconView,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(30))
+            )
 
-            item.addView(TextView(this).apply {
+            val labelView = TextView(this).apply {
                 text = label
                 textSize = 10f
                 gravity = Gravity.CENTER
-                setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
-                setTextColor(Color.rgb(55, 63, 75))
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)))
+                typeface = Typeface.create(
+                    Typeface.DEFAULT,
+                    if (selected) Typeface.BOLD else Typeface.NORMAL
+                )
+                setTextColor(if (selected) Color.rgb(37, 99, 235) else Color.rgb(92, 99, 112))
+                includeFontPadding = false
+            }
+            item.addView(
+                labelView,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20))
+            )
 
             bar.addView(
                 item,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                    leftMargin = dp(2)
+                    rightMargin = dp(2)
+                }
             )
         }
 
+        // Ikon dibuat sederhana dan ringan, tanpa library tambahan.
         addNavItem("⌂", "Beranda", Screen.HOME)
         addNavItem("PS", "PS", Screen.TABLE)
         addNavItem("＋", "F&B", Screen.FNB)
