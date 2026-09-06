@@ -635,7 +635,7 @@ class MainActivity : Activity() {
 
             val finishButton = createDangerButton("■  SELESAI")
             finishButton.setOnClickListener {
-                finishTableSession()
+                showFinishSessionConfirmation()
             }
             card.addView(finishButton, matchParentButton())
         }
@@ -1003,6 +1003,23 @@ class MainActivity : Activity() {
 
         pausedRemainingMillis = 0L
         buildTableScreen()
+    }
+
+    private fun showFinishSessionConfirmation() {
+        AlertDialog.Builder(this)
+            .setTitle("Akhiri Sesi?")
+            .setMessage(
+                String.format(
+                    Locale.US,
+                    "Sesi Meja %02d akan diakhiri dan tidak bisa dilanjutkan lagi.",
+                    selectedTable
+                )
+            )
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("AKHIRI SESI") { _, _ ->
+                finishTableSession()
+            }
+            .show()
     }
 
     private fun finishTableSession() {
