@@ -52,6 +52,10 @@ class MainActivity : Activity() {
     private val tvConnectionStatus =
         mutableMapOf<Int, TvConnectionState>()
 
+    // Nomor generasi mencegah hasil STATUS lama menimpa hasil perintah terbaru.
+    private val statusRequestGeneration =
+        mutableMapOf<Int, Long>()
+
     private val homeTimerRunnable =
         object : Runnable {
             override fun run() {
@@ -1197,6 +1201,9 @@ class MainActivity : Activity() {
     }
 
     private fun sendCommandToTable(tableNumber: Int, command: String) {
+        // Batalkan secara logis request STATUS lama agar response yang terlambat
+        // tidak mengembalikan UI ke kondisi sebelum perintah terbaru.
+        val commandGeneration = invalidateStatusRequests(tableNumber)
         val host = getTableIp(tableNumber)
         val tableLabel = String.format(Locale.US, "%02d", tableNumber)
 
@@ -1235,7 +1242,9 @@ class MainActivity : Activity() {
                 // Setelah perintah dikirim, baca kembali STATUS TV agar
                 // tampilan HP segera mengikuti kondisi TV yang sebenarnya.
                 Thread.sleep(250L)
-                syncTableStatus(tableNumber, rebuildWhenChanged = true)
+                if (getStatusRequestGeneration(tableNumber) == commandGeneration) {
+                    syncTableStatus(tableNumber, rebuildWhenChanged = true)
+                }
             } catch (_: Exception) {
                 runOnUiThread {
                     tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
@@ -1254,6 +1263,7 @@ class MainActivity : Activity() {
         tableNumber: Int,
         rebuildWhenChanged: Boolean = false
     ) {
+        val requestGeneration = getStatusRequestGeneration(tableNumber)
         val host = getTableIp(tableNumber)
 
         if (host.isBlank()) {
@@ -1281,6 +1291,12 @@ class MainActivity : Activity() {
                                 .orEmpty()
 
                         runOnUiThread {
+                            // Abaikan response lama jika ada perintah baru yang
+                            // sudah dikirim setelah request STATUS ini dimulai.
+                            if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
+                                return@runOnUiThread
+                            }
+
                             val connected = response.startsWith("STATUS|", ignoreCase = true)
                             tvConnectionStatus[tableNumber] = if (connected) TvConnectionState.CONNECTED else TvConnectionState.DISCONNECTED
                             applyTvStatus(
@@ -1304,6 +1320,15 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    private fun invalidateStatusRequests(tableNumber: Int): Long {
+        val next = getStatusRequestGeneration(tableNumber) + 1L
+        statusRequestGeneration[tableNumber] = next
+        return next
+    }
+
+    private fun getStatusRequestGeneration(tableNumber: Int): Long =
+        statusRequestGeneration[tableNumber] ?: 0L
 
     private fun applyTvStatus(
         tableNumber: Int,
