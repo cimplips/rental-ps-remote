@@ -61,8 +61,13 @@ class MainActivity : Activity() {
         super.onResume()
         if (screen == Screen.TABLE) {
             restoreTableSession(selectedTable)
+            syncTableStatus(selectedTable, rebuildWhenChanged = true)
         } else {
             buildHomeScreen()
+
+            for (tableNumber in 1..TABLE_COUNT) {
+                syncTableStatus(tableNumber)
+            }
         }
     }
 
@@ -323,6 +328,8 @@ class MainActivity : Activity() {
             String.format(Locale.US, "Meja %02d", selectedTable),
             "${getPsName(psType)}  •  ${formatRupiah(pricePerHour)} / jam"
         )
+
+        syncTableStatus(selectedTable, rebuildWhenChanged = false)
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -908,6 +915,117 @@ class MainActivity : Activity() {
                     showToast("Gagal terhubung ke TV meja ${String.format(Locale.US, "%02d", tableNumber)}")
                 }
             }
+        }
+    }
+
+    private fun syncTableStatus(
+        tableNumber: Int,
+        rebuildWhenChanged: Boolean = false
+    ) {
+        val host = getTableIp(tableNumber)
+
+        if (host.isBlank()) {
+            return
+        }
+
+        executor.execute {
+            try {
+                Socket(host, 8787).use { socket ->
+                    socket.soTimeout = 2500
+
+                    PrintWriter(socket.getOutputStream(), true).use { writer ->
+                        writer.println("STATUS")
+                        writer.flush()
+
+                        val response =
+                            socket.getInputStream()
+                                .bufferedReader()
+                                .readLine()
+                                ?.trim()
+                                .orEmpty()
+
+                        runOnUiThread {
+                            applyTvStatus(
+                                tableNumber = tableNumber,
+                                response = response,
+                                rebuildWhenChanged = rebuildWhenChanged
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // TV belum dapat dihubungi. Data lokal tetap dipertahankan.
+            }
+        }
+    }
+
+    private fun applyTvStatus(
+        tableNumber: Int,
+        response: String,
+        rebuildWhenChanged: Boolean
+    ) {
+        val parts = response.split("|")
+        if (parts.size < 3 || parts[0].uppercase(Locale.US) != "STATUS") {
+            return
+        }
+
+        val status = parts[1].uppercase(Locale.US)
+        val value = parts[2].toLongOrNull() ?: 0L
+
+        val activeKey = tableKey(tableNumber, "active")
+        val pausedKey = tableKey(tableNumber, "paused")
+        val endKey = tableKey(tableNumber, "session_end_time")
+        val pausedRemainingKey = tableKey(tableNumber, "paused_remaining")
+
+        when (status) {
+            "ACTIVE" -> {
+                if (value <= System.currentTimeMillis()) {
+                    preferences.edit()
+                        .putBoolean(activeKey, false)
+                        .putBoolean(pausedKey, false)
+                        .remove(endKey)
+                        .remove(pausedRemainingKey)
+                        .apply()
+                } else {
+                    preferences.edit()
+                        .putBoolean(activeKey, true)
+                        .putBoolean(pausedKey, false)
+                        .putLong(endKey, value)
+                        .putLong(pausedRemainingKey, 0L)
+                        .apply()
+                }
+            }
+
+            "PAUSED" -> {
+                if (value > 0L) {
+                    preferences.edit()
+                        .putBoolean(activeKey, true)
+                        .putBoolean(pausedKey, true)
+                        .putLong(endKey, 0L)
+                        .putLong(pausedRemainingKey, value)
+                        .apply()
+                }
+            }
+
+            "IDLE" -> {
+                preferences.edit()
+                    .putBoolean(activeKey, false)
+                    .putBoolean(pausedKey, false)
+                    .remove(endKey)
+                    .remove(pausedRemainingKey)
+                    .apply()
+            }
+
+            else -> return
+        }
+
+        if (
+            rebuildWhenChanged &&
+            screen == Screen.TABLE &&
+            selectedTable == tableNumber
+        ) {
+            restoreTableSession(tableNumber)
+            buildTableScreen()
         }
     }
 
