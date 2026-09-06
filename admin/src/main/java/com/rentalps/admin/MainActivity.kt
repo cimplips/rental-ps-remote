@@ -788,16 +788,144 @@ class MainActivity : Activity() {
 
             override fun onFinish() {
                 remainingText.text = "00:00:00"
-                expireTableSession(tableNumber)
+                verifyAndExpireTableSession(tableNumber)
             }
         }.start()
     }
 
+    private fun verifyAndExpireTableSession(tableNumber: Int) {
+        // Jangan langsung mengirim STOP hanya karena timer lokal HP habis.
+        // TV adalah sumber kebenaran; cek STATUS terlebih dahulu agar koneksi
+        // yang sempat putus tidak membuat sesi TV terhenti secara keliru.
+        val requestGeneration = invalidateStatusRequests(tableNumber)
+        val host = getTableIp(tableNumber)
+
+        if (host.isBlank()) {
+            // Tidak ada IP TV. Hanya bersihkan sesi lokal karena tidak ada
+            // perangkat yang bisa dikirimi STOP.
+            expireTableSessionLocally(tableNumber, sendStop = false)
+            return
+        }
+
+        executor.execute {
+            try {
+                Socket(host, 8787).use { socket ->
+                    socket.soTimeout = 2500
+
+                    PrintWriter(socket.getOutputStream(), true).use { writer ->
+                        writer.println("STATUS")
+                        writer.flush()
+
+                        val response =
+                            socket.getInputStream()
+                                .bufferedReader()
+                                .readLine()
+                                ?.trim()
+                                .orEmpty()
+
+                        runOnUiThread {
+                            if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
+                                return@runOnUiThread
+                            }
+
+                            tvConnectionStatus[tableNumber] =
+                                if (response.startsWith("STATUS|", ignoreCase = true)) {
+                                    TvConnectionState.CONNECTED
+                                } else {
+                                    TvConnectionState.DISCONNECTED
+                                }
+
+                            val parts = response.split("|")
+                            val status = parts.getOrNull(1)?.uppercase(Locale.US).orEmpty()
+                            val value = parts.getOrNull(2)?.toLongOrNull() ?: 0L
+
+                            when (status) {
+                                "ACTIVE" -> {
+                                    if (value > System.currentTimeMillis()) {
+                                        // TV masih aktif. Pulihkan timer HP dari
+                                        // waktu TV dan jangan kirim STOP.
+                                        applyTvStatus(
+                                            tableNumber,
+                                            response,
+                                            rebuildWhenChanged = true
+                                        )
+                                    } else {
+                                        expireTableSessionLocally(tableNumber, sendStop = true)
+                                    }
+                                }
+
+                                "PAUSED" -> {
+                                    if (value > 0L) {
+                                        // TV ternyata sedang pause. Pulihkan
+                                        // kondisi pause HP tanpa menghentikan TV.
+                                        applyTvStatus(
+                                            tableNumber,
+                                            response,
+                                            rebuildWhenChanged = true
+                                        )
+                                    } else {
+                                        expireTableSessionLocally(tableNumber, sendStop = true)
+                                    }
+                                }
+
+                                "IDLE" -> {
+                                    // TV sudah kosong, jadi sesi lokal memang
+                                    // boleh dibersihkan tanpa mengirim STOP lagi.
+                                    expireTableSessionLocally(tableNumber, sendStop = false)
+                                }
+
+                                else -> {
+                                    // Response tidak valid dianggap belum aman
+                                    // untuk mengakhiri sesi. Biarkan polling
+                                    // berikutnya melakukan recovery.
+                                    tvConnectionStatus[tableNumber] =
+                                        TvConnectionState.DISCONNECTED
+                                    if (screen == Screen.TABLE && selectedTable == tableNumber) {
+                                        scheduleTableRecoveryRefresh()
+                                    } else if (screen == Screen.HOME) {
+                                        scheduleHomeRefresh()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
+                        return@runOnUiThread
+                    }
+
+                    // TV tidak dapat dihubungi. Jangan kirim STOP dan jangan
+                    // menghapus sesi lokal; polling berikutnya akan mencoba
+                    // recovery ketika TV kembali terhubung.
+                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
+                    if (screen == Screen.TABLE && selectedTable == tableNumber) {
+                        scheduleTableRecoveryRefresh()
+                    } else if (screen == Screen.HOME) {
+                        scheduleHomeRefresh()
+                    }
+                }
+            }
+        }
+    }
+
     private fun expireTableSession(tableNumber: Int) {
+        // Dipertahankan untuk alur yang memang sudah memastikan sesi harus
+        // berakhir. Untuk timer normal, gunakan verifyAndExpireTableSession().
+        expireTableSessionLocally(tableNumber, sendStop = true)
+    }
+
+    private fun expireTableSessionLocally(
+        tableNumber: Int,
+        sendStop: Boolean
+    ) {
         sessionTimer?.cancel()
         sessionTimer = null
 
-        sendCommandToTable(tableNumber, "STOP")
+        if (sendStop) {
+            sendCommandToTable(tableNumber, "STOP")
+        }
 
         preferences.edit()
             .remove(tableKey(tableNumber, "session_end_time"))
@@ -812,9 +940,15 @@ class MainActivity : Activity() {
             pausedRemainingMillis = 0L
             isPaused = false
             buildTableScreen()
-        } else {
+        } else if (screen == Screen.HOME) {
             buildHomeScreen()
         }
+    }
+
+    private fun scheduleTableRecoveryRefresh() {
+        if (screen != Screen.TABLE) return
+        statusHandler.removeCallbacks(statusPollRunnable)
+        statusHandler.postDelayed(statusPollRunnable, 3_000L)
     }
 
     private fun updateTimerAppearance(
@@ -853,7 +987,7 @@ class MainActivity : Activity() {
         )
 
         if (endTime > 0L && endTime <= System.currentTimeMillis()) {
-            expireTableSession(tableNumber)
+            verifyAndExpireTableSession(tableNumber)
         }
     }
 
