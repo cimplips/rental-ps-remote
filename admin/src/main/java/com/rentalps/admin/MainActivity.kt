@@ -313,6 +313,28 @@ class MainActivity : Activity() {
         }
 
         header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
+
+        // Pengaturan tetap mudah ditemukan tanpa menambah tab navigasi baru.
+        // Satu tombol di header menggantikan kebutuhan tombol pengaturan yang
+        // tersebar di berbagai halaman.
+        if (screen == Screen.HOME) {
+            val settings = TextView(this).apply {
+                text = "⚙"
+                textSize = 24f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(22, 131, 91))
+                setBackgroundColor(Color.TRANSPARENT)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Pengaturan"
+                setOnClickListener {
+                    screen = Screen.TABLE_SETTINGS
+                    buildTableSettingsScreen()
+                }
+            }
+            header.addView(settings, LinearLayout.LayoutParams(dp(48), dp(52)))
+        }
+
         root.addView(header, matchParentWrapContent())
 
         if (!subtitleText.isNullOrBlank()) {
