@@ -17,6 +17,8 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
@@ -104,7 +106,7 @@ class MainActivity : Activity() {
                     Screen.TABLE -> {
                         syncTableStatus(
                             selectedTable,
-                            rebuildWhenChanged = true
+                            rebuildWhenChanged = false
                         )
                         statusHandler.postDelayed(this, 3_000L)
                     }
@@ -113,7 +115,7 @@ class MainActivity : Activity() {
                         for (tableNumber in 1..TABLE_COUNT) {
                             syncTableStatus(
                                 tableNumber,
-                                rebuildWhenChanged = true
+                                rebuildWhenChanged = false
                             )
                         }
                         statusHandler.postDelayed(this, 5_000L)
@@ -176,7 +178,7 @@ class MainActivity : Activity() {
             for (tableNumber in 1..TABLE_COUNT) {
                 syncTableStatus(
                     tableNumber,
-                    rebuildWhenChanged = true
+                    rebuildWhenChanged = false
                 )
             }
         }
@@ -185,8 +187,76 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
+    private class TouchScrollView(context: android.content.Context) : ScrollView(context) {
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private var downX = 0f
+        private var downY = 0f
+        private var dragging = false
+
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    dragging = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    super.onInterceptTouchEvent(event)
+                    return false
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    if (!dragging && kotlin.math.abs(dy) > touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+                        dragging = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+
+            return super.onInterceptTouchEvent(event)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    dragging = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    if (!dragging && kotlin.math.abs(dy) > touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+                        dragging = true
+                    }
+                    if (dragging) {
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+
+            return super.onTouchEvent(event)
+        }
+    }
+
     private fun buildBase(titleText: String, subtitleText: String? = null) {
-        val scroll = ScrollView(this).apply {
+        val scroll = TouchScrollView(this).apply {
             setBackgroundColor(Color.rgb(245, 247, 250))
             isFillViewport = false
             isSmoothScrollingEnabled = true
@@ -195,20 +265,6 @@ class MainActivity : Activity() {
             clipToPadding = false
             setPadding(0, 0, 0, dp(24))
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
-            setOnTouchListener { view, event ->
-                when (event.actionMasked) {
-                    android.view.MotionEvent.ACTION_DOWN -> {
-                        view.parent?.requestDisallowInterceptTouchEvent(true)
-                        false
-                    }
-                    android.view.MotionEvent.ACTION_UP,
-                    android.view.MotionEvent.ACTION_CANCEL -> {
-                        view.parent?.requestDisallowInterceptTouchEvent(false)
-                        false
-                    }
-                    else -> false
-                }
-            }
         }
 
         root = LinearLayout(this).apply {
