@@ -41,8 +41,14 @@ class MainActivity : Activity() {
     private val homeTimerViews =
         mutableMapOf<Int, TextView>()
 
+    private enum class TvConnectionState {
+        UNCHECKED,
+        CONNECTED,
+        DISCONNECTED
+    }
+
     private val tvConnectionStatus =
-        mutableMapOf<Int, Boolean>()
+        mutableMapOf<Int, TvConnectionState>()
 
     private val homeTimerRunnable =
         object : Runnable {
@@ -364,10 +370,10 @@ class MainActivity : Activity() {
             textSize = 16f
             gravity = Gravity.CENTER
             setTextColor(
-                if (isTvConnected(tableNumber)) {
-                    Color.rgb(55, 170, 95)
-                } else {
-                    Color.rgb(185, 190, 198)
+                when (getTvConnectionState(tableNumber)) {
+                    TvConnectionState.CONNECTED -> Color.rgb(55, 170, 95)
+                    TvConnectionState.DISCONNECTED -> Color.rgb(205, 105, 105)
+                    TvConnectionState.UNCHECKED -> Color.rgb(185, 190, 198)
                 }
             )
         }
@@ -398,14 +404,18 @@ class MainActivity : Activity() {
         }, matchParentWrapContent())
 
         card.addView(TextView(this).apply {
-            text = if (isTvConnected(tableNumber)) "TV Terhubung" else "TV Belum Terhubung"
+            text = when (getTvConnectionState(tableNumber)) {
+                TvConnectionState.CONNECTED -> "TV Terhubung"
+                TvConnectionState.DISCONNECTED -> "TV Tidak Terhubung"
+                TvConnectionState.UNCHECKED -> "TV Belum Dicek"
+            }
             textSize = 11f
             gravity = Gravity.CENTER
             setTextColor(
-                if (isTvConnected(tableNumber)) {
-                    Color.rgb(55, 140, 88)
-                } else {
-                    Color.rgb(145, 150, 158)
+                when (getTvConnectionState(tableNumber)) {
+                    TvConnectionState.CONNECTED -> Color.rgb(55, 140, 88)
+                    TvConnectionState.DISCONNECTED -> Color.rgb(170, 90, 90)
+                    TvConnectionState.UNCHECKED -> Color.rgb(145, 150, 158)
                 }
             )
         }, matchParentWrapContent())
@@ -995,12 +1005,21 @@ class MainActivity : Activity() {
             if (getTableIp(table).isBlank()) {
                 connectionStatus.text = "● TV belum diatur"
                 connectionStatus.setTextColor(Color.rgb(145, 150, 158))
-            } else if (isTvConnected(table)) {
-                connectionStatus.text = "● TV terhubung"
-                connectionStatus.setTextColor(Color.rgb(55, 170, 95))
             } else {
-                connectionStatus.text = "● TV belum terhubung / belum dicek"
-                connectionStatus.setTextColor(Color.rgb(145, 150, 158))
+                when (getTvConnectionState(table)) {
+                    TvConnectionState.CONNECTED -> {
+                        connectionStatus.text = "● TV terhubung"
+                        connectionStatus.setTextColor(Color.rgb(55, 170, 95))
+                    }
+                    TvConnectionState.DISCONNECTED -> {
+                        connectionStatus.text = "● TV tidak terhubung"
+                        connectionStatus.setTextColor(Color.rgb(190, 90, 90))
+                    }
+                    TvConnectionState.UNCHECKED -> {
+                        connectionStatus.text = "● Belum dicek"
+                        connectionStatus.setTextColor(Color.rgb(145, 150, 158))
+                    }
+                }
             }
         }
 
@@ -1046,7 +1065,7 @@ class MainActivity : Activity() {
                 .apply()
 
             if (oldIp != ip) {
-                tvConnectionStatus[table] = false
+                tvConnectionStatus[table] = TvConnectionState.UNCHECKED
             }
             updateConnectionStatus(table)
             showToast(String.format(Locale.US, "Meja %02d tersimpan", table))
@@ -1090,7 +1109,7 @@ class MainActivity : Activity() {
                 }
 
                 runOnUiThread {
-                    tvConnectionStatus[table] = success
+                    tvConnectionStatus[table] = if (success) TvConnectionState.CONNECTED else TvConnectionState.DISCONNECTED
                     testConnection.isEnabled = true
                     testConnection.text = "TEST KONEKSI TV"
                     updateConnectionStatus(table)
@@ -1203,7 +1222,7 @@ class MainActivity : Activity() {
         val host = getTableIp(tableNumber)
 
         if (host.isBlank()) {
-            tvConnectionStatus[tableNumber] = false
+            tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
             if (screen == Screen.HOME) {
                 scheduleHomeRefresh()
             }
@@ -1228,7 +1247,7 @@ class MainActivity : Activity() {
 
                         runOnUiThread {
                             val connected = response.startsWith("STATUS|", ignoreCase = true)
-                            tvConnectionStatus[tableNumber] = connected
+                            tvConnectionStatus[tableNumber] = if (connected) TvConnectionState.CONNECTED else TvConnectionState.DISCONNECTED
                             applyTvStatus(
                                 tableNumber = tableNumber,
                                 response = response,
@@ -1242,7 +1261,7 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    tvConnectionStatus[tableNumber] = false
+                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
                     if (rebuildWhenChanged && screen == Screen.HOME) {
                         scheduleHomeRefresh()
                     }
@@ -1364,8 +1383,12 @@ class MainActivity : Activity() {
             "PS3"
         ) ?: "PS3"
 
+    private fun getTvConnectionState(tableNumber: Int): TvConnectionState =
+        tvConnectionStatus[tableNumber] ?: TvConnectionState.UNCHECKED
+
     private fun isTvConnected(tableNumber: Int): Boolean =
-        tvConnectionStatus[tableNumber] == true && getTableIp(tableNumber).isNotBlank()
+        getTvConnectionState(tableNumber) == TvConnectionState.CONNECTED &&
+            getTableIp(tableNumber).isNotBlank()
 
     private fun getTableIp(tableNumber: Int): String =
         preferences.getString(
