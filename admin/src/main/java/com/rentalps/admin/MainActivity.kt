@@ -125,6 +125,7 @@ class MainActivity : Activity() {
         )
 
         buildHomeScreen()
+        requestInitialTvRecovery()
     }
 
     override fun onResume() {
@@ -134,6 +135,21 @@ class MainActivity : Activity() {
             syncTableStatus(selectedTable, rebuildWhenChanged = true)
         } else {
             buildHomeScreen()
+            requestInitialTvRecovery()
+        }
+    }
+
+    private fun requestInitialTvRecovery() {
+        // SharedPreferences tetap menjadi sumber data lokal saat aplikasi dibuka.
+        // Status TV kemudian dipakai untuk mengoreksi ACTIVE/PAUSED/IDLE.
+        statusHandler.post {
+            if (screen != Screen.HOME) return@post
+            for (tableNumber in 1..TABLE_COUNT) {
+                syncTableStatus(
+                    tableNumber,
+                    rebuildWhenChanged = true
+                )
+            }
         }
     }
 
