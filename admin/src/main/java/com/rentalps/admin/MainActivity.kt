@@ -162,12 +162,31 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (screen == Screen.TABLE) {
-            restoreTableSession(selectedTable)
-            syncTableStatus(selectedTable, rebuildWhenChanged = true)
-        } else {
-            buildHomeScreen()
-            requestInitialTvRecovery()
+
+        when (screen) {
+            Screen.TABLE -> {
+                restoreTableSession(selectedTable)
+                syncTableStatus(selectedTable, rebuildWhenChanged = true)
+                startStatusPolling()
+            }
+
+            Screen.HOME -> {
+                // HOME boleh dibangun ulang setelah Activity kembali terlihat agar
+                // status/timer dashboard segar. Jangan memaksa kembali ke HOME
+                // dari halaman pengaturan, karena onResume juga dipanggil setelah
+                // kembali dari file picker QRIS atau Activity lain.
+                buildHomeScreen()
+                requestInitialTvRecovery()
+            }
+
+            Screen.PS_SETTINGS,
+            Screen.TABLE_SETTINGS,
+            Screen.TV_SETTINGS -> {
+                // Pertahankan halaman yang sedang dibuka.
+                // Tidak perlu polling saat berada di halaman pengaturan.
+                stopStatusPolling()
+                stopHomeTimer()
+            }
         }
     }
 
@@ -2505,6 +2524,14 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        // Hentikan pekerjaan UI berkala ketika Activity tidak terlihat.
+        // State sesi tetap aman di SharedPreferences dan akan dipulihkan
+        // berdasarkan waktu akhir/remaining saat onResume().
+        stopStatusPolling()
+        stopHomeTimer()
+        sessionTimer?.cancel()
+        sessionTimer = null
+
         super.onPause()
     }
 
