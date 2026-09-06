@@ -1403,7 +1403,11 @@ class MainActivity : Activity() {
         tableNumber: Int,
         rebuildWhenChanged: Boolean = false
     ) {
-        val requestGeneration = getStatusRequestGeneration(tableNumber)
+        // Setiap STATUS request mendapat generation baru. Dengan begitu dua
+        // polling yang berjalan bersamaan tidak boleh saling menimpa hasil.
+        // Hanya response dari request STATUS terbaru yang boleh memperbarui
+        // status sesi dan indikator koneksi TV.
+        val requestGeneration = invalidateStatusRequests(tableNumber)
         val host = getTableIp(tableNumber)
 
         if (host.isBlank()) {
