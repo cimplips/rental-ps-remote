@@ -1,1105 +1,144 @@
+
 package com.rentalps.admin
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.SharedPreferences
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.util.Base64
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
 import android.view.Gravity
-import android.view.MotionEvent
-import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
-import java.io.ByteArrayOutputStream
+import android.widget.*
 import java.io.PrintWriter
 import java.net.Socket
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.max
 
+/**
+ * Cimpli PS - MainActivity
+ *
+ * UI dibangun ulang dari nol dengan konsep:
+ * - Soft gray premium
+ * - Emerald accent
+ * - Dashboard rental PS
+ * - F&B
+ * - Timer sesi
+ * - Kontrol Android TV melalui socket
+ *
+ * Tidak menggunakan layout XML.
+ */
 class MainActivity : Activity() {
 
-    private lateinit var preferences: SharedPreferences
+    private val prefs: SharedPreferences by lazy {
+        getSharedPreferences("cimpli_ps", Context.MODE_PRIVATE)
+    }
 
     private val executor = Executors.newCachedThreadPool()
+    private val handler = Handler(Looper.getMainLooper())
 
-    private var sessionTimer: CountDownTimer? = null
+    private val tables = (1..10).map { TableState(it) }.toMutableList()
 
-    private val statusHandler =
-        Handler(Looper.getMainLooper())
+    private val fnbProducts = mutableListOf(
+        FnbProduct(1, "Kopi Susu", "Minuman", 12000),
+        FnbProduct(2, "Es Teh", "Minuman", 7000),
+        FnbProduct(3, "Air Mineral", "Minuman", 5000),
+        FnbProduct(4, "Mie Goreng", "Makanan", 15000),
+        FnbProduct(5, "Kentang Goreng", "Makanan", 12000),
+        FnbProduct(6, "Nugget", "Makanan", 14000)
+    )
 
-    private val homeTimerHandler =
-        Handler(Looper.getMainLooper())
+    private val orders = mutableListOf<FnbOrder>()
 
-    private val homeTimerViews =
-        mutableMapOf<Int, TextView>()
+    private val homeTimerViews = mutableMapOf<Int, TextView>()
+    private var detailTimerView: TextView? = null
 
-    private enum class TvConnectionState {
-        UNCHECKED,
-        CONNECTED,
-        DISCONNECTED
-    }
-
-    private val tvConnectionStatus =
-        mutableMapOf<Int, TvConnectionState>()
-
-    // Nomor generasi mencegah hasil STATUS lama menimpa hasil perintah terbaru.
-    private val statusRequestGeneration =
-        mutableMapOf<Int, Long>()
-
-    // Satu command untuk satu meja diproses berurutan agar START/ADD/PAUSE/RESUME/STOP
-    // tidak saling bertabrakan ketika tombol ditekan cepat atau polling berjalan bersamaan.
-    private val tableCommandLocks = Array(11) { Any() }
-
-    private val homeTimerRunnable =
-        object : Runnable {
-            override fun run() {
-                if (screen != Screen.HOME) return
-
-                val now = System.currentTimeMillis()
-                homeTimerViews.forEach { (tableNumber, textView) ->
-                    val endTime = preferences.getLong(
-                        tableKey(tableNumber, "session_end_time"),
-                        0L
-                    )
-                    val active = preferences.getBoolean(
-                        tableKey(tableNumber, "active"),
-                        false
-                    ) && !preferences.getBoolean(
-                        tableKey(tableNumber, "paused"),
-                        false
-                    )
-
-                    if (active && endTime > now) {
-                        textView.text = formatTime(endTime - now)
-                    } else if (active && endTime > 0L) {
-                        textView.text = "00:00:00"
-                    }
-                }
-
-                homeTimerHandler.postDelayed(this, 1_000L)
-            }
-        }
-
-    private val statusPollRunnable =
-        object : Runnable {
-            override fun run() {
-                when (screen) {
-                    Screen.TABLE -> {
-                        syncTableStatus(
-                            selectedTable,
-                            rebuildWhenChanged = false
-                        )
-                        statusHandler.postDelayed(this, 3_000L)
-                    }
-
-                    Screen.HOME -> {
-                        for (tableNumber in 1..TABLE_COUNT) {
-                            syncTableStatus(
-                                tableNumber,
-                                rebuildWhenChanged = false
-                            )
-                        }
-                        statusHandler.postDelayed(this, 5_000L)
-                    }
-
-                    else -> Unit
-                }
-            }
-        }
-
-    private var homeRefreshScheduled = false
     private var selectedTable = 1
-    private var screen = Screen.HOME
+    private var currentPage = Page.HOME
+    private var fnbFilter = "Semua"
 
-    private var qrisPickerTable = 1
-    private var pendingQrisBase64 = ""
+    private lateinit var content: LinearLayout
+    private lateinit var titleView: TextView
+    private lateinit var subtitleView: TextView
+    private lateinit var bottomNav: LinearLayout
 
-    private var sessionPrice = 0L
-    private var pausedRemainingMillis = 0L
-    private var isPaused = false
-
-    private lateinit var root: LinearLayout
-    private var homeScrollView: ScrollView? = null
-    private var lastScrollY = 0
-    private var restoringHomeScroll = false
-
-    private enum class Screen {
-        HOME,
-        TABLE,
-        PS_SETTINGS,
-        TABLE_SETTINGS,
-        TV_SETTINGS,
-        FNB,
-        TRANSACTIONS
+    private val timerRunnable = object : Runnable {
+        override fun run() {
+            if (currentPage == Page.HOME) {
+                refreshTableCards()
+            }
+            handler.postDelayed(this, 1000L)
+        }
     }
+
+    private enum class Page {
+        HOME, TABLE, FNB, TRANSACTIONS
+    }
+
+    private data class TableState(
+        val number: Int,
+        var psType: String = "PS5",
+        var active: Boolean = false,
+        var paused: Boolean = false,
+        var endAt: Long = 0L,
+        var pausedRemaining: Long = 0L,
+        var tvIp: String = "",
+        var bill: Long = 0L
+    )
+
+    private data class FnbProduct(
+        val id: Int,
+        val name: String,
+        val category: String,
+        val price: Long
+    )
+
+    private data class FnbOrder(
+        val id: Long,
+        val table: Int,
+        val items: MutableMap<Int, Int>,
+        val total: Long,
+        val createdAt: Long = System.currentTimeMillis()
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        preferences = getSharedPreferences(
-            "rental_ps_admin",
-            MODE_PRIVATE
-        )
+        loadTables()
+        buildShell()
+        showHome()
 
-        buildHomeScreen()
-        requestInitialTvRecovery()
+        handler.post(timerRunnable)
     }
 
-    override fun onResume() {
-        super.onResume()
-        when (screen) {
-            Screen.TABLE -> {
-                restoreTableSession(selectedTable)
-                syncTableStatus(selectedTable, rebuildWhenChanged = true)
-            }
-            Screen.HOME -> {
-                // Jangan rebuild dashboard pada setiap onResume. Rebuild ScrollView
-                // menyebabkan posisi scroll berkedip/lompat ketika Activity mendapat
-                // focus kembali (termasuk setelah dialog/file picker).
-                requestInitialTvRecovery()
-                homeScrollView?.post {
-                    if (screen == Screen.HOME) {
-                        homeScrollView?.scrollTo(0, lastScrollY)
-                    }
-                }
-            }
-            else -> Unit
-        }
+    override fun onDestroy() {
+        handler.removeCallbacks(timerRunnable)
+        executor.shutdownNow()
+        super.onDestroy()
     }
 
-    private fun requestInitialTvRecovery() {
-        // SharedPreferences tetap menjadi sumber data lokal saat aplikasi dibuka.
-        // Status TV kemudian dipakai untuk mengoreksi ACTIVE/PAUSED/IDLE.
-        statusHandler.post {
-            if (screen != Screen.HOME) return@post
-            for (tableNumber in 1..TABLE_COUNT) {
-                syncTableStatus(
-                    tableNumber,
-                    rebuildWhenChanged = false
-                )
-            }
-        }
-    }
+    // -------------------------------------------------------------------------
+    // SHELL
+    // -------------------------------------------------------------------------
 
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
-
-    private class TouchScrollView(context: android.content.Context) : ScrollView(context) {
-        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-        private var downX = 0f
-        private var downY = 0f
-        private var dragging = false
-
-        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.x
-                    downY = event.y
-                    dragging = false
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    return super.onInterceptTouchEvent(event)
-                }
-
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.x - downX
-                    val dy = event.y - downY
-                    if (!dragging && kotlin.math.abs(dy) > touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
-                        dragging = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
-                }
-
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    dragging = false
-                    parent?.requestDisallowInterceptTouchEvent(false)
-                }
-            }
-            return super.onInterceptTouchEvent(event)
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    parent?.requestDisallowInterceptTouchEvent(false)
-                    dragging = false
-                }
-            }
-            return super.onTouchEvent(event)
-        }
-    }
-
-    private fun buildBase(titleText: String, subtitleText: String? = null) {
-        val scroll = TouchScrollView(this).apply {
-            setBackgroundColor(Color.rgb(246, 248, 251))
-            isFillViewport = false
-            // Dashboard memakai scrollTo() untuk mempertahankan posisi. Smooth
-            // scrolling di sini justru dapat membuat posisi terlihat bergerak sendiri.
-            isSmoothScrollingEnabled = false
-            isVerticalScrollBarEnabled = true
-            overScrollMode = View.OVER_SCROLL_ALWAYS
-            clipToPadding = false
-            setPadding(0, 0, 0, dp(24))
-            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
-            setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                if (screen == Screen.HOME && !restoringHomeScroll) {
-                    lastScrollY = scrollY
-                }
-            }
-        }
-
-        root = LinearLayout(this).apply {
+    private fun buildShell() {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(12), dp(18), dp(30))
+            setBackgroundColor(C.BG)
         }
 
-        scroll.addView(root)
-        if (screen == Screen.HOME) {
-            homeScrollView = scroll
-        }
-
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        if (screen != Screen.HOME) {
-            val back = Button(this).apply {
-                text = "‹"
-                textSize = 28f
-                setTextColor(Color.rgb(48, 57, 72))
-                setBackgroundColor(Color.TRANSPARENT)
-                minWidth = dp(44)
-                minHeight = dp(48)
-                setOnClickListener {
-                    sessionTimer?.cancel()
-                    stopStatusPolling()
-                    screen = Screen.HOME
-                    buildHomeScreen()
-                }
-            }
-            header.addView(back, LinearLayout.LayoutParams(dp(50), dp(52)))
-        }
-
-        val title = TextView(this).apply {
-            text = titleText
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(28, 35, 48))
-        }
-
-        header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
-
-        // Pengaturan tetap mudah ditemukan tanpa menambah tab navigasi baru.
-        // Satu tombol di header menggantikan kebutuhan tombol pengaturan yang
-        // tersebar di berbagai halaman.
-        if (screen == Screen.HOME) {
-            val settings = TextView(this).apply {
-                text = "⚙"
-                textSize = 24f
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(37, 150, 108))
-                setBackgroundColor(Color.TRANSPARENT)
-                isClickable = true
-                isFocusable = true
-                contentDescription = "Pengaturan"
-                setOnClickListener {
-                    screen = Screen.TABLE_SETTINGS
-                    buildSettingsMenuScreen()
-                }
-            }
-            header.addView(settings, LinearLayout.LayoutParams(dp(48), dp(52)))
-        }
-
-        root.addView(header, matchParentWrapContent())
-
-        if (!subtitleText.isNullOrBlank()) {
-            val subtitle = TextView(this).apply {
-                text = subtitleText
-                textSize = 13f
-                setTextColor(Color.rgb(108, 118, 133))
-                setPadding(0, 0, 0, dp(14))
-            }
-            root.addView(subtitle, matchParentWrapContent())
-        }
-
-        val pageContainer = LinearLayout(this).apply {
+        val top = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(246, 248, 251))
-        }
-        pageContainer.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-        pageContainer.addView(
-            createBottomNavigation(),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(72)
-            )
-        )
-
-        setContentView(pageContainer)
-        if (screen == Screen.HOME) {
-            val restoreY = lastScrollY
-            scroll.post {
-                if (screen != Screen.HOME) return@post
-                restoringHomeScroll = true
-                scroll.scrollTo(0, restoreY.coerceAtLeast(0))
-                scroll.postOnAnimation {
-                    restoringHomeScroll = false
-                }
-            }
-        }
-    }
-
-    private fun createBottomNavigation(): LinearLayout {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(7), dp(8), dp(7))
-            background = roundedBackground(Color.WHITE, dp(18))
-            elevation = dp(8).toFloat()
-        }
-
-        fun addNavItem(icon: String, label: String, target: Screen) {
-            val selected = when (target) {
-                Screen.HOME -> screen == Screen.HOME
-                Screen.TABLE -> screen == Screen.TABLE
-                Screen.FNB -> screen == Screen.FNB
-                Screen.TRANSACTIONS -> screen == Screen.TRANSACTIONS
-                else -> false
-            }
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                isClickable = true
-                isFocusable = true
-                setPadding(dp(4), 0, dp(4), 0)
-                background = roundedBackground(
-                    if (selected) Color.rgb(232,245,239) else Color.TRANSPARENT,
-                    dp(14)
-                )
-                setOnClickListener {
-                    when (target) {
-                        Screen.HOME -> { screen = Screen.HOME; buildHomeScreen() }
-                        Screen.TABLE -> { screen = Screen.TABLE; buildTableScreen() }
-                        Screen.FNB -> { screen = Screen.FNB; buildFnbScreen() }
-                        Screen.TRANSACTIONS -> { screen = Screen.TRANSACTIONS; buildTransactionsScreen() }
-                        else -> Unit
-                    }
-                }
-            }
-            item.addView(TextView(this).apply {
-                text = icon
-                textSize = 21f
-                gravity = Gravity.CENTER
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (selected) Color.rgb(22,131,91) else Color.rgb(105,113,126))
-                includeFontPadding = false
-                contentDescription = label
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(30)))
-            item.addView(TextView(this).apply {
-                text = label
-                textSize = 10f
-                gravity = Gravity.CENTER
-                typeface = Typeface.create(Typeface.DEFAULT, if (selected) Typeface.BOLD else Typeface.NORMAL)
-                setTextColor(if (selected) Color.rgb(22,131,91) else Color.rgb(92,99,112))
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20)))
-            bar.addView(item, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                leftMargin = dp(2); rightMargin = dp(2)
-            })
-        }
-
-        addNavItem("⌂", "Beranda", Screen.HOME)
-        addNavItem("PS", "PS", Screen.TABLE)
-        addNavItem("＋", "F&B", Screen.FNB)
-        addNavItem("▣", "Transaksi", Screen.TRANSACTIONS)
-        return bar
-    }
-
-    private fun buildSettingsMenuScreen() {
-        buildBase("Pengaturan", "Personalisasi aplikasi dan perangkat")
-
-        addSectionTitle(root, "Profil Toko")
-        val profileCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = roundedBackground(Color.WHITE, dp(18))
-            elevation = dp(2).toFloat()
-        }
-
-        val avatar = createProfileAvatar(dp(64))
-        profileCard.addView(avatar, LinearLayout.LayoutParams(dp(64), dp(64)))
-
-        val profileText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, dp(8), 0)
-        }
-        profileText.addView(TextView(this@MainActivity).apply {
-            text = "Logo / Foto Profil"
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(28, 35, 48))
-        }, matchParentWrapContent())
-        profileText.addView(TextView(this@MainActivity).apply {
-            text = "Tampilkan logo toko di Beranda"
-            textSize = 12f
-            setTextColor(Color.rgb(112, 122, 138))
-            setPadding(0, dp(3), 0, 0)
-        }, matchParentWrapContent())
-        profileCard.addView(profileText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-        val changeLogo = createSoftButton("GANTI")
-        changeLogo.textSize = 11f
-        changeLogo.minHeight = dp(40)
-        changeLogo.minimumHeight = dp(40)
-        changeLogo.setOnClickListener { chooseProfileImage() }
-        profileCard.addView(changeLogo, LinearLayout.LayoutParams(dp(76), dp(42)))
-        root.addView(profileCard, matchParentWrapContent())
-
-        addSectionTitle(root, "Pengaturan Operasional")
-        val psSettingsButton = createSoftButton("Harga & Durasi PS")
-        psSettingsButton.setOnClickListener {
-            screen = Screen.PS_SETTINGS
-            buildPsSettingsScreen()
-        }
-        root.addView(psSettingsButton, matchParentButton())
-
-        val tableSettingsButton = createSoftButton("Pengaturan Meja • PS & IP TV")
-        tableSettingsButton.setOnClickListener {
-            screen = Screen.TABLE_SETTINGS
-            buildTableSettingsScreen()
-        }
-        root.addView(tableSettingsButton, matchParentButton())
-
-        val tvSettingsButton = createSoftButton("Pengaturan Tampilan TV")
-        tvSettingsButton.setOnClickListener {
-            screen = Screen.TV_SETTINGS
-            buildTvSettingsScreen()
-        }
-        root.addView(tvSettingsButton, matchParentButton())
-
-        val fnbSettingsButton = createSoftButton("F&B & Menu")
-        fnbSettingsButton.setOnClickListener {
-            screen = Screen.FNB
-            buildFnbScreen()
-        }
-        root.addView(fnbSettingsButton, matchParentButton())
-    }
-
-    private fun buildFnbScreen() {
-        buildBase("F&B", "Pesanan makanan & minuman langsung ke meja")
-
-        val products = listOf(
-            Triple("Indomie Goreng", 12000L, "Makanan"),
-            Triple("Kentang Goreng", 15000L, "Snack"),
-            Triple("Nasi Goreng", 18000L, "Makanan"),
-            Triple("Chicken Wings", 20000L, "Snack"),
-            Triple("Es Teh", 5000L, "Minuman"),
-            Triple("Kopi Susu", 12000L, "Minuman"),
-            Triple("Air Mineral", 4000L, "Minuman"),
-            Triple("Soda", 8000L, "Minuman")
-        )
-        val cart = mutableMapOf<String, Int>()
-
-        val tableLabel = TextView(this).apply {
-            text = "Pesanan untuk  •  Meja ${String.format(Locale.US, "%02d", selectedTable)}"
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(45, 55, 68))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = roundedBackground(Color.WHITE, dp(18))
-        }
-        root.addView(tableLabel, matchParentWrapContent())
-
-        val categories = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(10), 0, dp(4))
-        }
-        listOf("Semua", "Makanan", "Minuman", "Snack").forEachIndexed { index, label ->
-            val chip = createSmallDashboardButton(label)
-            chip.textSize = 11f
-            chip.setTextColor(if (index == 0) Color.rgb(45, 125, 92) else Color.rgb(90, 100, 114))
-            chip.background = roundedBackground(
-                if (index == 0) Color.rgb(228, 241, 235) else Color.rgb(239, 243, 247),
-                dp(14)
-            )
-            categories.addView(chip, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-                if (index > 0) leftMargin = dp(4)
-            })
-        }
-        root.addView(categories, matchParentWrapContent())
-
-        val search = createInput("Cari menu makanan / minuman")
-        search.setSingleLine(true)
-        search.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0)
-        root.addView(search, matchParentWrapContent())
-
-        val summary = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = roundedBackground(Color.rgb(238, 242, 245), dp(18))
-        }
-        val summaryText = TextView(this).apply {
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(55, 65, 78))
-        }
-        summary.addView(summaryText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(summary, matchParentWrapContent().apply { topMargin = dp(8) })
-
-        fun refreshSummary() {
-            val count = cart.values.sum()
-            val total = cart.entries.sumOf { entry ->
-                products.firstOrNull { it.first == entry.key }?.second?.times(entry.value) ?: 0L
-            }
-            summaryText.text = if (count == 0) "Keranjang kosong" else "$count item  •  ${formatRupiah(total)}"
-        }
-        refreshSummary()
-
-        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        for (row in products.indices step 2) {
-            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (column in 0..1) {
-                val index = row + column
-                if (index >= products.size) break
-                val (name, price, category) = products[index]
-                val card = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(14), dp(12), dp(14), dp(12))
-                    background = roundedBackground(Color.WHITE, dp(18))
-                    elevation = dp(1).toFloat()
-                }
-                val icon = TextView(this).apply {
-                    text = when (category) {
-                        "Minuman" -> "☕"
-                        "Snack" -> "🍟"
-                        else -> "🍜"
-                    }
-                    textSize = 25f
-                    gravity = Gravity.CENTER
-                    setTextColor(Color.rgb(100, 112, 124))
-                    background = roundedBackground(Color.rgb(242, 245, 247), dp(14))
-                }
-                card.addView(icon, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)))
-                card.addView(TextView(this).apply {
-                    text = name; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.rgb(45, 55, 68)); setPadding(0, dp(8), 0, dp(2))
-                }, matchParentWrapContent())
-                card.addView(TextView(this).apply {
-                    text = formatRupiah(price); textSize = 12f
-                    setTextColor(Color.rgb(105, 116, 130)); setPadding(0, dp(1), 0, dp(7))
-                }, matchParentWrapContent())
-                val add = createPrimaryButton("+ Tambah")
-                add.textSize = 12f
-                add.setOnClickListener {
-                    cart[name] = (cart[name] ?: 0) + 1
-                    refreshSummary()
-                }
-                card.addView(add, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
-                rowLayout.addView(card, LinearLayout.LayoutParams(0, dp(176), 1f).apply {
-                    if (column == 0) rightMargin = dp(5) else leftMargin = dp(5)
-                    bottomMargin = dp(10)
-                })
-            }
-            grid.addView(rowLayout, matchParentWrapContent())
-        }
-        root.addView(grid, matchParentWrapContent())
-
-        val checkout = createPrimaryButton("Lihat Keranjang  •  Pesan Sekarang")
-        checkout.setOnClickListener {
-            if (cart.isEmpty()) {
-                showToast("Pilih makanan atau minuman terlebih dahulu")
-                return@setOnClickListener
-            }
-            val total = cart.entries.sumOf { entry ->
-                products.firstOrNull { it.first == entry.key }?.second?.times(entry.value) ?: 0L
-            }
-            val count = cart.values.sum()
-            AlertDialog.Builder(this)
-                .setTitle("Konfirmasi Pesanan")
-                .setMessage("Meja ${String.format(Locale.US, "%02d", selectedTable)}\n$count item\nTotal ${formatRupiah(total)}")
-                .setNegativeButton("Kembali", null)
-                .setPositiveButton("KIRIM PESANAN") { _, _ ->
-                    val current = preferences.getLong("fnb_today_income", 0L)
-                    preferences.edit().putLong("fnb_today_income", current + total).apply()
-                    showToast("Pesanan F&B dikirim ke Meja ${String.format(Locale.US, "%02d", selectedTable)}")
-                    buildFnbScreen()
-                }
-                .show()
-        }
-        root.addView(checkout, matchParentButton().apply { topMargin = dp(6) })
-    }
-
-    private fun buildTransactionsScreen() {
-        buildBase("Transaksi", "Sesi PS dan penjualan F&B")
-
-        val today = getTodayIncome()
-        val activeCount = (1..TABLE_COUNT).count { isTableActive(it) }
-        val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
-        val fnbIncome = preferences.getLong("fnb_today_income", 0L)
-
-        val summary = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        summary.addView(
-            createSummaryCard("Hari ini", formatRupiah(today), Color.rgb(37, 150, 108)),
-            LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(5) }
-        )
-        summary.addView(
-            createSummaryCard("Sesi aktif", activeCount.toString(), Color.rgb(46, 150, 105)),
-            LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) }
-        )
-        summary.addView(
-            createSummaryCard("Pause", pausedCount.toString(), Color.rgb(218, 157, 67)),
-            LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5) }
-        )
-        root.addView(summary, matchParentWrapContent())
-
-        val fnbCard = createSummaryCard("F&B hari ini", formatRupiah(fnbIncome), Color.rgb(45, 125, 92))
-        root.addView(fnbCard, matchParentWrapContent().apply { topMargin = dp(8) })
-
-        val filterRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(8), 0, dp(4))
-        }
-        listOf("Semua", "Sesi PS", "Cafe", "F&B").forEachIndexed { index, label ->
-            val filter = createSmallDashboardButton(label)
-            filter.textSize = 11f
-            filter.background = roundedBackground(
-                if (index == 0) Color.rgb(228, 241, 235) else Color.rgb(239, 243, 247),
-                dp(14)
-            )
-            filter.setTextColor(if (index == 0) Color.rgb(45, 125, 92) else Color.rgb(90, 100, 114))
-            filterRow.addView(filter, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-                if (index > 0) leftMargin = dp(4)
-            })
-        }
-        root.addView(filterRow, matchParentWrapContent())
-
-        addSectionTitle(root, "Sesi yang sedang berjalan")
-
-        val activeTables = (1..TABLE_COUNT).filter { isTableActive(it) || isTablePaused(it) }
-        if (activeTables.isEmpty()) {
-            val emptyCard = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(20), dp(30), dp(20), dp(30))
-                background = roundedBackground(Color.WHITE, dp(18))
-                elevation = dp(1).toFloat()
-            }
-            emptyCard.addView(TextView(this@MainActivity).apply {
-                text = "Belum ada sesi berjalan"
-                textSize = 16f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(48, 57, 72))
-            }, matchParentWrapContent())
-            emptyCard.addView(TextView(this@MainActivity).apply {
-                text = "Mulai sesi dari menu PS atau Beranda."
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(122, 132, 148))
-                setPadding(0, dp(5), 0, 0)
-            }, matchParentWrapContent())
-            root.addView(emptyCard, matchParentWrapContent())
-        } else {
-            activeTables.forEach { tableNumber ->
-                val active = isTableActive(tableNumber)
-                val paused = isTablePaused(tableNumber)
-                val remaining = getTableRemaining(tableNumber)
-
-                val card = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(15), dp(12), dp(12), dp(12))
-                    background = roundedBackground(Color.WHITE, dp(18))
-                    elevation = dp(1).toFloat()
-                }
-
-                val info = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                }
-                info.addView(TextView(this@MainActivity).apply {
-                    text = String.format(Locale.US, "Meja %02d", tableNumber)
-                    textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.rgb(28, 35, 48))
-                }, matchParentWrapContent())
-                info.addView(TextView(this@MainActivity).apply {
-                    text = when {
-                        paused -> "PAUSE • ${formatTime(remaining)}"
-                        active -> "AKTIF • ${formatTime(remaining)}"
-                        else -> "SELESAI"
-                    }
-                    textSize = 11f
-                    setTextColor(
-                        when {
-                            paused -> Color.rgb(218, 157, 67)
-                            active -> Color.rgb(46, 166, 113)
-                            else -> Color.rgb(122, 132, 148)
-                        }
-                    )
-                    setPadding(0, dp(3), 0, 0)
-                }, matchParentWrapContent())
-                card.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-
-                val open = createSoftButton("Buka")
-                open.minHeight = dp(40)
-                open.minimumHeight = dp(40)
-                open.setOnClickListener {
-                    selectedTable = tableNumber
-                    restoreTableSession(tableNumber)
-                    screen = Screen.TABLE
-                    buildTableScreen()
-                }
-                card.addView(open, LinearLayout.LayoutParams(dp(72), dp(42)))
-
-                root.addView(card, matchParentWrapContent().apply { bottomMargin = dp(8) })
-            }
-        }
-
-        addSectionTitle(root, "Catatan")
-        val note = TextView(this).apply {
-            text = "Pemasukan saat ini mengikuti sesi PS yang sudah selesai. Modul F&B akan memakai alur transaksi yang sama saat penyimpanan pesanan diaktifkan."
-            textSize = 11f
-            setTextColor(Color.rgb(112, 122, 138))
-            setPadding(dp(4), 0, dp(4), dp(16))
-        }
-        root.addView(note, matchParentWrapContent())
-    }
-
-    private fun loadCimpliPsLogo(): android.graphics.Bitmap? {
-        return try {
-            val data = Base64.decode(CIMPLI_PS_LOGO_BASE64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(data, 0, data.size)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun buildHomeScreen() {
-        screen = Screen.HOME
-        sessionTimer?.cancel()
-        homeTimerHandler.removeCallbacks(homeTimerRunnable)
-        homeTimerViews.clear()
-
-        buildBase("Beranda", "Ringkasan operasional rental PS")
-
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            background = roundedBackground(Color.rgb(232, 236, 240), dp(24))
-            elevation = dp(3).toFloat()
-        }
-
-        hero.addView(createProfileAvatar(dp(68)), LinearLayout.LayoutParams(dp(68), dp(68)))
-
-        val heroText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, 0, 0)
-        }
-        heroText.addView(TextView(this@MainActivity).apply {
-            text = "Rental PS"
-            textSize = 21f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(38, 48, 60))
-        }, matchParentWrapContent())
-        heroText.addView(TextView(this@MainActivity).apply {
-            text = "Dashboard kasir & kontrol sesi"
-            textSize = 12f
-            setTextColor(Color.rgb(112, 122, 134))
-            setPadding(0, dp(4), 0, 0)
-        }, matchParentWrapContent())
-        hero.addView(heroText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(hero, matchParentWrapContent())
-
-        val incomeCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = roundedBackground(Color.rgb(232, 236, 240), dp(24))
-            elevation = dp(2).toFloat()
-        }
-        val incomeTop = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        incomeTop.addView(TextView(this@MainActivity).apply {
-            text = "PENGHASILAN HARI INI"
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(105, 116, 130))
-        }, LinearLayout.LayoutParams(0, dp(24), 1f))
-        incomeTop.addView(TextView(this@MainActivity).apply {
-            text = "Rp"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(45, 125, 92))
-            gravity = Gravity.CENTER
-            background = roundedBackground(Color.rgb(226, 240, 234), dp(10))
-            setPadding(dp(9), dp(5), dp(9), dp(5))
-        }, LinearLayout.LayoutParams(dp(38), dp(28)))
-        incomeCard.addView(incomeTop, matchParentWrapContent())
-        incomeCard.addView(TextView(this@MainActivity).apply {
-            text = formatRupiah(getTodayIncome())
-            textSize = 30f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(38, 48, 60))
-            setPadding(0, dp(5), 0, 0)
-        }, matchParentWrapContent())
-        incomeCard.addView(TextView(this@MainActivity).apply {
-            text = "Akumulasi sesi PS + penjualan F&B hari ini"
-            textSize = 11f
-            setTextColor(Color.rgb(112, 122, 134))
-            setPadding(0, dp(3), 0, 0)
-        }, matchParentWrapContent())
-        root.addView(incomeCard, matchParentWrapContent().apply { topMargin = dp(12) })
-
-        val quickRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        quickRow.addView(createQuickAction("＋", "Mulai sesi") { screen = Screen.TABLE; buildTableScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
-        quickRow.addView(createQuickAction("＋", "Pesanan F&B") { screen = Screen.FNB; buildFnbScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
-        root.addView(quickRow, matchParentWrapContent())
-
-        val activeCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
-        val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
-        val availableCount = TABLE_COUNT - activeCount - pausedCount
-
-        val stats = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        stats.addView(createDashboardStat("AKTIF", activeCount.toString(), Color.rgb(46, 150, 105)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
-        stats.addView(createDashboardStat("PAUSE", pausedCount.toString(), Color.rgb(145, 112, 60)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
-        stats.addView(createDashboardStat("KOSONG", availableCount.toString(), Color.rgb(90, 99, 112)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
-        root.addView(stats, matchParentWrapContent())
-
-        val section = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(18), 0, dp(9))
-        }
-        section.addView(TextView(this@MainActivity).apply {
-            text = "Meja PlayStation"
-            textSize = 18f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(28, 35, 48))
-        }, LinearLayout.LayoutParams(0, dp(32), 1f))
-        val pauseAllButton = createSmallDashboardButton(if (activeCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL").apply {
-            isEnabled = activeCount > 0 || pausedCount > 0
-            alpha = if (isEnabled) 1f else 0.5f
-            setOnClickListener {
-                if (activeCount > 0) showPauseAllConfirmation() else if (pausedCount > 0) showResumeAllConfirmation()
-            }
-        }
-        section.addView(pauseAllButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
-        root.addView(section, matchParentWrapContent())
-
-        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        for (row in 0 until 5) {
-            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (column in 0 until 2) {
-                val tableNumber = row * 2 + column + 1
-                rowLayout.addView(createTableCard(tableNumber), LinearLayout.LayoutParams(0, dp(166), 1f).apply {
-                    if (column == 0) rightMargin = dp(5) else leftMargin = dp(5)
-                    bottomMargin = dp(10)
-                })
-            }
-            grid.addView(rowLayout, matchParentWrapContent())
-        }
-        root.addView(grid, matchParentWrapContent())
-
-        startStatusPolling()
-        homeTimerHandler.post(homeTimerRunnable)
-    }
-
-    private fun createQuickAction(icon: String, label: String, action: () -> Unit): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), 0, dp(10), 0)
-            background = roundedBackground(Color.WHITE, dp(16))
-            elevation = dp(1).toFloat()
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { action() }
-            addView(TextView(this@MainActivity).apply {
-                text = icon
-                textSize = 18f
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(45, 57, 73))
-                background = roundedBackground(Color.rgb(241, 245, 248), dp(12))
-            }, LinearLayout.LayoutParams(dp(36), dp(36)))
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = 10f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.rgb(70, 79, 92))
-                setPadding(dp(7), 0, 0, 0)
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        }
-    }
-
-    private fun createDashboardStat(label: String, value: String, valueColor: Int): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = roundedBackground(Color.WHITE, dp(18))
-            elevation = dp(1).toFloat()
-            addView(TextView(this@MainActivity).apply {
-                text = value
-                textSize = 22f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(valueColor)
-            }, matchParentWrapContent())
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = 9f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(Color.rgb(128, 138, 153))
-                setPadding(0, dp(2), 0, 0)
-            }, matchParentWrapContent())
-        }
-    }
-
-    private fun createProfileAvatar(size: Int): ImageView {
-        return ImageView(this).apply {
-            val custom = preferences.getString("profile_logo_base64", "") ?: ""
-            val bitmap = if (custom.isNotBlank()) {
-                try {
-                    val bytes = Base64.decode(custom, Base64.DEFAULT)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                } catch (_: Exception) { null }
-            } else null
-            setImageBitmap(bitmap ?: loadCimpliPsLogo())
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = roundedBackground(Color.rgb(239, 243, 247), size / 2)
-            clipToOutline = true
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-            contentDescription = "Logo profil"
-        }
-    }
-
-    private fun roundedBackground(color: Int, radius: Int): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = radius.toFloat()
-            setStroke(dp(1), Color.rgb(232, 237, 242))
-        }
-
-    private fun getTodayIncome(): Long =
-        preferences.getLong("income_${java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}", 0L)
-
-    private fun addTodayIncome(amount: Long) {
-        if (amount <= 0L) return
-        val key = "income_${java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}"
-        preferences.edit().putLong(key, getTodayIncome() + amount).apply()
-    }
-
-    private fun chooseProfileImage() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-            type = "image/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        startActivityForResult(intent, REQUEST_PROFILE_IMAGE)
-    }
-
-    private fun createSummaryCard(
-        label: String,
-        value: String,
-        valueColor: Int
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            setBackgroundColor(Color.WHITE)
-
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = 12f
-                setTextColor(Color.rgb(125, 132, 143))
-            }, matchParentWrapContent())
-
-            addView(TextView(this@MainActivity).apply {
-                text = value
-                textSize = 25f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(valueColor)
-            }, matchParentWrapContent())
-        }
-    }
-
-    private fun createTableCard(tableNumber: Int): LinearLayout {
-        val active = isTableActive(tableNumber)
-        val paused = isTablePaused(tableNumber)
-        val psType = getTablePsType(tableNumber)
-        val remaining = getTableRemaining(tableNumber)
-        val connectionState = getTvConnectionState(tableNumber)
-
-        val statusColor = when {
-            active && !paused -> Color.rgb(46, 166, 113)
-            paused -> Color.rgb(218, 157, 67)
-            else -> Color.rgb(139, 149, 163)
-        }
-        val surfaceColor = when {
-            active && !paused -> Color.rgb(246, 252, 248)
-            paused -> Color.rgb(255, 251, 244)
-            else -> Color.WHITE
-        }
-
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = roundedBackground(surfaceColor, dp(20))
-            elevation = dp(2).toFloat()
-            isClickable = false
-            isFocusable = false
+            setPadding(dp(20), dp(18), dp(20), dp(8))
+            setBackgroundColor(C.BG)
         }
 
         val topRow = LinearLayout(this).apply {
@@ -1107,2032 +146,1460 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val tableBadge = TextView(this).apply {
-            text = "MEJA ${String.format(Locale.US, "%02d", tableNumber)}"
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        brand.addView(TextView(this@MainActivity).apply {
+            text = "CIMPLI PS"
+            textSize = 19f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+        })
+
+        brand.addView(TextView(this@MainActivity).apply {
+            text = "Rental • TV • F&B"
+            textSize = 10f
+            setTextColor(C.MUTED)
+            setPadding(0, dp(2), 0, 0)
+        })
+
+        topRow.addView(brand, LinearLayout.LayoutParams(0, dp(50), 1f))
+
+        val settings = iconButton("⚙", 44)
+        settings.setOnClickListener { showSettingsDialog() }
+        topRow.addView(settings)
+
+        top.addView(topRow)
+
+        titleView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(C.MUTED)
+            setPadding(0, dp(3), 0, dp(4))
+        }
+        top.addView(titleView)
+
+        subtitleView = TextView(this).apply {
+            textSize = 10f
+            setTextColor(C.LIGHT_MUTED)
+        }
+        top.addView(subtitleView)
+
+        root.addView(top, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        }
+
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(24))
+        }
+
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+
+        bottomNav = buildBottomNav()
+        root.addView(bottomNav, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(74)
+        ))
+
+        setContentView(root)
+    }
+
+    private fun buildBottomNav(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(10))
+            background = rounded(C.WHITE, dp(24))
+
+            addView(navItem("⌂", "Beranda", Page.HOME),
+                LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("▦", "Meja", Page.TABLE),
+                LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("☕", "F&B", Page.FNB),
+                LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("▤", "Transaksi", Page.TRANSACTIONS),
+                LinearLayout.LayoutParams(0, dp(58), 1f))
+        }
+    }
+
+    private fun navItem(icon: String, label: String, page: Page): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            setOnClickListener {
+                currentPage = page
+                when (page) {
+                    Page.HOME -> showHome()
+                    Page.TABLE -> showTables()
+                    Page.FNB -> showFnb()
+                    Page.TRANSACTIONS -> showTransactions()
+                }
+            }
+
+            val iconView = TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 20f
+                gravity = Gravity.CENTER
+                setTextColor(if (currentPage == page) C.GREEN else C.LIGHT_MUTED)
+            }
+
+            val textView = TextView(this@MainActivity).apply {
+                text = label
+                textSize = 9f
+                gravity = Gravity.CENTER
+                setTextColor(if (currentPage == page) C.GREEN else C.MUTED)
+                setPadding(0, dp(2), 0, 0)
+            }
+
+            addView(iconView, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(27)
+            ))
+            addView(textView, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(20)
+            ))
+        }
+    }
+
+    private fun refreshNav() {
+        val parent = bottomNav
+        for (i in 0 until parent.childCount) {
+            val item = parent.getChildAt(i) as LinearLayout
+            val selected = when (i) {
+                0 -> currentPage == Page.HOME
+                1 -> currentPage == Page.TABLE
+                2 -> currentPage == Page.FNB
+                else -> currentPage == Page.TRANSACTIONS
+            }
+
+            (item.getChildAt(0) as TextView).setTextColor(
+                if (selected) C.GREEN else C.LIGHT_MUTED
+            )
+            (item.getChildAt(1) as TextView).setTextColor(
+                if (selected) C.GREEN else C.MUTED
+            )
+        }
+    }
+
+    private fun setHeader(title: String, subtitle: String) {
+        titleView.text = title
+        subtitleView.text = subtitle
+        refreshNav()
+    }
+
+    // -------------------------------------------------------------------------
+    // HOME
+    // -------------------------------------------------------------------------
+
+    private fun showHome() {
+        currentPage = Page.HOME
+        homeTimerViews.clear()
+        detailTimerView = null
+        content.removeAllViews()
+        setHeader(
+            "Dashboard",
+            SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("id", "ID")).format(Date())
+        )
+
+        val hero = card(C.WHITE, 22)
+        hero.setPadding(dp(18), dp(17), dp(18), dp(17))
+
+        hero.addView(TextView(this).apply {
+            text = "Selamat datang 👋"
+            textSize = 12f
+            setTextColor(C.MUTED)
+        })
+
+        hero.addView(TextView(this).apply {
+            text = "Kelola rental & cafe lebih mudah"
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+            setPadding(0, dp(4), 0, dp(3))
+        })
+
+        hero.addView(TextView(this).apply {
+            text = "Pantau sesi aktif, waktu bermain, TV, dan pesanan F&B."
+            textSize = 10f
+            setTextColor(C.LIGHT_MUTED)
+        })
+
+        content.addView(hero, wrap().apply { bottomMargin = dp(12) })
+
+        val summary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        summary.addView(summaryCard(
+            "Meja",
+            tables.size.toString(),
+            C.TEXT
+        ), LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+            rightMargin = dp(4)
+        })
+
+        summary.addView(summaryCard(
+            "Aktif",
+            tables.count { it.active }.toString(),
+            C.GREEN
+        ), LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+            leftMargin = dp(4)
+            rightMargin = dp(4)
+        })
+
+        summary.addView(summaryCard(
+            "F&B",
+            formatRupiah(todayFnb()),
+            C.TEXT
+        ), LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+            leftMargin = dp(4)
+        })
+
+        content.addView(summary, wrap().apply { bottomMargin = dp(18) })
+
+        sectionTitle("Meja PlayStation")
+
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        for (r in 0 until 5) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+
+            for (c in 0 until 2) {
+                val number = r * 2 + c + 1
+                row.addView(
+                    tableCard(number),
+                    LinearLayout.LayoutParams(0, dp(158), 1f).apply {
+                        if (c == 0) rightMargin = dp(5) else leftMargin = dp(5)
+                        bottomMargin = dp(10)
+                    }
+                )
+            }
+            grid.addView(row, wrap())
+        }
+
+        content.addView(grid)
+
+        sectionTitle("F&B")
+
+        val fnb = card(C.WHITE, 20)
+        fnb.setPadding(dp(14), dp(14), dp(14), dp(14))
+
+        val fnbHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        fnbHeader.addView(TextView(this@MainActivity).apply {
+            text = "Pesanan & Produk Cafe"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+
+        val open = smallButton("Buka F&B")
+        open.setOnClickListener {
+            currentPage = Page.FNB
+            showFnb()
+        }
+        fnbHeader.addView(open, LinearLayout.LayoutParams(dp(92), dp(40)))
+
+        fnb.addView(fnbHeader)
+
+        val fnbRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(7), 0, 0)
+        }
+
+        fnbRow.addView(fnbMini("☕", "Minuman", "${fnbProducts.count { it.category == "Minuman" }} menu"),
+            LinearLayout.LayoutParams(0, dp(76), 1f).apply { rightMargin = dp(4) })
+
+        fnbRow.addView(fnbMini("🍜", "Makanan", "${fnbProducts.count { it.category == "Makanan" }} menu"),
+            LinearLayout.LayoutParams(0, dp(76), 1f).apply {
+                leftMargin = dp(4); rightMargin = dp(4)
+            })
+
+        fnbRow.addView(fnbMini("🧾", "Pesanan", "${orders.size} order"),
+            LinearLayout.LayoutParams(0, dp(76), 1f).apply { leftMargin = dp(4) })
+
+        fnb.addView(fnbRow)
+
+        content.addView(fnb, wrap())
+    }
+
+    private fun tableCard(number: Int): LinearLayout {
+        val table = tables[number - 1]
+        val active = table.active && remaining(table) > 0
+        val paused = table.active && table.paused
+
+        if (table.active && !paused && remaining(table) <= 0) {
+            finishSession(table, false)
+        }
+
+        val background = when {
+            paused -> C.PAUSE_BG
+            active -> C.ACTIVE_BG
+            else -> C.WHITE
+        }
+
+        val root = card(background, 19).apply {
+            setPadding(dp(13), dp(11), dp(13), dp(10))
+            isClickable = true
+            setOnClickListener {
+                selectedTable = number
+                currentPage = Page.TABLE
+                showTableDetail()
+            }
+        }
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        top.addView(TextView(this@MainActivity).apply {
+            text = "MEJA ${String.format("%02d", number)}"
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(statusColor)
-            background = roundedBackground(
-                when {
-                    active && !paused -> Color.rgb(228, 247, 235)
-                    paused -> Color.rgb(252, 241, 219)
-                    else -> Color.rgb(241, 243, 246)
-                }, dp(9)
-            )
-            setPadding(dp(9), dp(5), dp(9), dp(5))
-        }
-        topRow.addView(tableBadge, LinearLayout.LayoutParams(0, dp(28), 1f))
+            setTextColor(C.MUTED)
+        }, LinearLayout.LayoutParams(0, dp(25), 1f))
 
-        val connection = TextView(this).apply {
-            text = when (connectionState) {
-                TvConnectionState.CONNECTED -> "● ONLINE"
-                TvConnectionState.DISCONNECTED -> "● OFFLINE"
-                TvConnectionState.UNCHECKED -> "● CHECK"
-            }
+        val status = when {
+            paused -> "PAUSE"
+            active -> "AKTIF"
+            else -> "TERSEDIA"
+        }
+
+        val statusView = TextView(this).apply {
+            text = status
             textSize = 8f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(
-                when (connectionState) {
-                    TvConnectionState.CONNECTED -> Color.rgb(46, 166, 113)
-                    TvConnectionState.DISCONNECTED -> Color.rgb(196, 92, 92)
-                    TvConnectionState.UNCHECKED -> Color.rgb(139, 149, 163)
+                when {
+                    paused -> C.AMBER
+                    active -> C.GREEN
+                    else -> C.MUTED
                 }
             )
+            background = rounded(
+                when {
+                    paused -> C.PAUSE_CHIP
+                    active -> C.GREEN_CHIP
+                    else -> C.GRAY_CHIP
+                },
+                dp(9)
+            )
+            setPadding(dp(7), 0, dp(7), 0)
         }
-        topRow.addView(connection, LinearLayout.LayoutParams(dp(68), dp(28)))
-        card.addView(topRow, matchParentWrapContent())
 
-        val mainRow = LinearLayout(this).apply {
+        top.addView(statusView, LinearLayout.LayoutParams(dp(64), dp(25)))
+        root.addView(top)
+
+        root.addView(TextView(this).apply {
+            text = table.psType
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+            setPadding(0, dp(5), 0, 0)
+        }, wrap())
+
+        root.addView(TextView(this).apply {
+            text = if (table.tvIp.isBlank()) "TV belum diatur" else "TV siap"
+            textSize = 8f
+            setTextColor(C.LIGHT_MUTED)
+            setPadding(0, dp(2), 0, 0)
+        }, wrap())
+
+        val timerView = TextView(this).apply {
+            text = if (active || paused) formatTime(remaining(table))
+            else "Siap digunakan"
+            textSize = if (active || paused) 18f else 9f
+            typeface = if (active || paused) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            setTextColor(if (active || paused) C.TEXT else C.LIGHT_MUTED)
+            setPadding(0, dp(7), 0, 0)
+        }
+        root.addView(timerView, wrap())
+
+        if (currentPage == Page.HOME && (active || paused)) {
+            homeTimerViews[number] = timerView
+        }
+
+        return root
+    }
+
+    private fun refreshTableCards() {
+        tables.forEach { table ->
+            if (table.active && !table.paused && remaining(table) <= 0L) {
+                finishSession(table, false)
+            }
+        }
+
+        if (currentPage == Page.HOME) {
+            homeTimerViews.forEach { (number, view) ->
+                val table = tables[number - 1]
+                view.text = if (table.active) {
+                    formatTime(remaining(table))
+                } else {
+                    "Siap digunakan"
+                }
+            }
+        } else if (currentPage == Page.TABLE) {
+            detailTimerView?.let { view ->
+                val table = tables[selectedTable - 1]
+                view.text = if (table.active) {
+                    formatTime(remaining(table))
+                } else {
+                    "00:00:00"
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // TABLES
+    // -------------------------------------------------------------------------
+
+    private fun showTables() {
+        currentPage = Page.TABLE
+        content.removeAllViews()
+        setHeader("Meja", "Pilih meja untuk memulai atau mengelola sesi")
+
+        val active = tables.count { it.active }
+        val available = tables.count { !it.active }
+
+        val info = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(7), 0, dp(3))
         }
 
-        mainRow.addView(TextView(this).apply {
-            text = psType
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(75, 82, 94))
-        }, LinearLayout.LayoutParams(0, dp(34), 1f))
-
-        val timerText = TextView(this).apply {
-            text = when {
-                active && !paused -> formatTime(remaining)
-                paused -> formatTime(remaining)
-                else -> "SIAP"
-            }
-            textSize = if (active || paused) 19f else 12f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(statusColor)
-            background = roundedBackground(Color.rgb(246, 247, 249), dp(11))
-            setPadding(dp(8), dp(5), dp(8), dp(5))
-        }
-        mainRow.addView(timerText, LinearLayout.LayoutParams(dp(92), dp(34)))
-        card.addView(mainRow, matchParentWrapContent())
-
-        if (active && !paused) {
-            homeTimerViews[tableNumber] = timerText
-        }
-
-        val actionButton = if (!active && !paused) {
-            createPrimaryButton("Mulai sesi")
-        } else {
-            createSoftButton("Kelola sesi")
-        }
-        actionButton.setOnClickListener {
-            selectedTable = tableNumber
-            restoreTableSession(tableNumber)
-            screen = Screen.TABLE
-            buildTableScreen()
-        }
-        card.addView(actionButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)).apply {
-            topMargin = dp(5)
-        })
-
-        return card
-    }
-
-    private fun addOneHourToTable(tableNumber: Int) {
-        selectedTable = tableNumber
-        restoreTableSession(tableNumber)
-        addOneHour()
-        screen = Screen.HOME
-        buildHomeScreen()
-    }
-
-    private fun showDashboardAddHourChooser() {
-        val activeTables = (1..TABLE_COUNT)
-            .filter { isTableActive(it) && !isTablePaused(it) }
-
-        if (activeTables.isEmpty()) {
-            showToast("Tidak ada sesi aktif yang bisa ditambah jam")
-            return
-        }
-
-        val tableNames = activeTables.map {
-            String.format(Locale.US, "Meja %02d", it)
-        }.toTypedArray()
-
-        AlertDialog.Builder(this)
-            .setTitle("Tambah 1 Jam")
-            .setItems(tableNames) { _, which ->
-                val tableNumber = activeTables[which]
-                selectedTable = tableNumber
-                addOneHourToTable(tableNumber)
-            }
-            .setNegativeButton("BATAL", null)
-            .show()
-    }
-
-    private fun buildTableScreen() {
-        sessionTimer?.cancel()
-        restoreTableSession(selectedTable)
-
-        val psType = getTablePsType(selectedTable)
-        val pricePerHour = getPsPrice(psType)
-
-        buildBase(
-            String.format(Locale.US, "Meja %02d", selectedTable),
-            "${getPsName(psType)}  •  ${formatRupiah(pricePerHour)} / jam"
-        )
-
-        syncTableStatus(selectedTable, rebuildWhenChanged = false)
-        startStatusPolling()
-
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(24))
-            setBackgroundColor(Color.WHITE)
-        }
-
-        card.addView(TextView(this).apply {
-            text = getPsName(psType)
-            textSize = 22f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(45, 52, 64))
-        }, matchParentWrapContent())
-
-        val remainingText = TextView(this).apply {
-            text = formatTime(currentTableRemaining())
-            textSize = 40f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(48, 57, 72))
-            setPadding(0, dp(20), 0, dp(2))
-        }
-        card.addView(remainingText, matchParentWrapContent())
-
-        val statusText = TextView(this).apply {
-            text = when {
-                isPaused -> "● Sesi dijeda"
-                isCurrentTableActive() -> "● Sesi aktif"
-                else -> "○ Meja kosong"
-            }
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setTextColor(
-                if (isPaused) Color.rgb(150, 112, 55)
-                else Color.rgb(105, 113, 125)
-            )
-            setPadding(0, 0, 0, dp(14))
-        }
-        card.addView(statusText, matchParentWrapContent())
-
-        if (!isCurrentTableActive() && !isPaused) {
-            val startButton = createSmallDashboardButton("▶ MULAI")
-            startButton.setOnClickListener {
-                showStartDurationDialog()
-            }
-            card.addView(startButton, matchParentButton())
-        } else {
-            val firstRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
-
-            val addButton = createSoftButton("+ JAM")
-            addButton.setOnClickListener {
-                addOneHour()
-            }
-
-            val pauseButton = createSoftButton(
-                if (isPaused) "▶ LANJUT" else "Ⅱ PAUSE"
-            )
-            pauseButton.setOnClickListener {
-                if (isPaused) resumeTable() else pauseTable()
-            }
-
-            firstRow.addView(
-                addButton,
-                LinearLayout.LayoutParams(0, dp(58), 1f).apply {
-                    rightMargin = dp(5)
-                }
-            )
-            firstRow.addView(
-                pauseButton,
-                LinearLayout.LayoutParams(0, dp(58), 1f).apply {
-                    leftMargin = dp(5)
-                }
-            )
-
-            card.addView(firstRow, matchParentWrapContent())
-
-            val finishButton = createDangerButton("■  SELESAI")
-            finishButton.setOnClickListener {
-                showFinishSessionConfirmation()
-            }
-            card.addView(finishButton, matchParentButton())
-        }
-
-        val billCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(14), dp(18), dp(14), dp(18))
-            setBackgroundColor(Color.rgb(248, 249, 251))
-        }
-
-        billCard.addView(TextView(this@MainActivity).apply {
-            text = "Tagihan"
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(108, 118, 133))
-        }, matchParentWrapContent())
-
-        billCard.addView(TextView(this@MainActivity).apply {
-            text = formatRupiah(sessionPrice)
-            textSize = 25f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(37, 47, 61))
-        }, matchParentWrapContent())
-
-        card.addView(billCard, matchParentWrapContent())
-        root.addView(card, matchParentWrapContent())
-
-        if (isCurrentTableActive() && !isPaused) {
-            startTableTimer(selectedTable, remainingText, statusText)
-        }
-    }
-
-    private fun showStartDurationDialog() {
-        val psType = getTablePsType(selectedTable)
-        val baseDuration = getPsDuration(psType)
-        val baseHours = (baseDuration / 60).coerceAtLeast(1)
-
-        val options = arrayOf(
-            "1 Jam",
-            "2 Jam",
-            "3 Jam",
-            "4 Jam"
-        )
-
-        AlertDialog.Builder(this)
-            .setTitle("Mulai Sesi")
-            .setMessage("Durasi dasar ${baseDuration} menit • ${formatRupiah(getPsPrice(psType))} / jam")
-            .setItems(options) { _, which ->
-                val hours = which + 1
-                startTableSession(hours)
-            }
-            .setNegativeButton("BATAL", null)
-            .show()
-    }
-
-    private fun showPauseAllConfirmation() {
-        val activeTables = (1..TABLE_COUNT)
-            .filter { isTableActive(it) }
-
-        if (activeTables.isEmpty()) {
-            showToast("Tidak ada sesi aktif yang perlu di-pause")
-            return
-        }
-
-        val tableNames = activeTables.joinToString(", ") {
-            String.format(Locale.US, "Meja %02d", it)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Pause Semua Sesi?")
-            .setMessage(
-                "Semua sesi aktif akan dijeda sementara. " +
-                    "Timer di HP dan TV akan berhenti.\n\n" +
-                    tableNames
-            )
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("PAUSE SEMUA") { _, _ ->
-                pauseAllActiveSessions(activeTables)
-            }
-            .show()
-    }
-
-    private fun showStopAllConfirmation() {
-        val tables = (1..TABLE_COUNT)
-            .filter { isTableActive(it) || isTablePaused(it) }
-
-        if (tables.isEmpty()) {
-            showToast("Tidak ada sesi yang perlu diakhiri")
-            return
-        }
-
-        val tableNames = tables.joinToString(", ") {
-            String.format(Locale.US, "Meja %02d", it)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Akhiri Semua Sesi?")
-            .setMessage(
-                "Semua sesi yang aktif maupun pause akan diakhiri dan tidak bisa dilanjutkan lagi.\n\n" +
-                    tableNames
-            )
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("AKHIRI SEMUA") { _, _ ->
-                stopAllSessions(tables)
-            }
-            .show()
-    }
-
-    private fun stopAllSessions(tables: List<Int>) {
-        var stoppedCount = 0
-
-        for (tableNumber in tables) {
-            sendCommandToTable(tableNumber, "STOP")
-
-            preferences.edit()
-                .remove(tableKey(tableNumber, "session_end_time"))
-                .remove(tableKey(tableNumber, "session_price"))
-                .remove(tableKey(tableNumber, "paused_remaining"))
-                .putBoolean(tableKey(tableNumber, "active"), false)
-                .putBoolean(tableKey(tableNumber, "paused"), false)
-                .apply()
-
-            if (screen == Screen.TABLE && selectedTable == tableNumber) {
-                sessionPrice = 0L
-                pausedRemainingMillis = 0L
-                isPaused = false
-            }
-
-            stoppedCount++
-        }
-
-        showToast("$stoppedCount sesi berhasil diakhiri")
-
-        if (screen == Screen.HOME) {
-            buildHomeScreen()
-        } else if (screen == Screen.TABLE) {
-            buildTableScreen()
-        }
-    }
-
-    private fun showResumeAllConfirmation() {
-        val pausedTables = (1..TABLE_COUNT)
-            .filter { isTablePaused(it) }
-
-        if (pausedTables.isEmpty()) {
-            showToast("Tidak ada sesi pause yang perlu dilanjutkan")
-            return
-        }
-
-        val tableNames = pausedTables.joinToString(", ") {
-            String.format(Locale.US, "Meja %02d", it)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Lanjutkan Semua Sesi?")
-            .setMessage(
-                "Semua sesi yang sedang pause akan dilanjutkan. " +
-                    "Pastikan TV dan listrik sudah siap.\n\n" +
-                    tableNames
-            )
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("LANJUT SEMUA") { _, _ ->
-                resumeAllPausedSessions(pausedTables)
-            }
-            .show()
-    }
-
-    private fun resumeAllPausedSessions(pausedTables: List<Int>) {
-        var resumedCount = 0
-
-        for (tableNumber in pausedTables) {
-            val remaining = preferences.getLong(
-                tableKey(tableNumber, "paused_remaining"),
-                0L
-            )
-
-            if (remaining <= 0L) {
-                continue
-            }
-
-            val newEnd = System.currentTimeMillis() + remaining
-
-            preferences.edit()
-                .putBoolean(tableKey(tableNumber, "active"), true)
-                .putBoolean(tableKey(tableNumber, "paused"), false)
-                .putLong(tableKey(tableNumber, "session_end_time"), newEnd)
-                .putLong(tableKey(tableNumber, "paused_remaining"), 0L)
-                .apply()
-
-            sendCommandToTable(
-                tableNumber,
-                "START:${remaining / 1000L}"
-            )
-            resumedCount++
-        }
-
-        if (resumedCount > 0) {
-            showToast("$resumedCount sesi berhasil dilanjutkan")
-        } else {
-            showToast("Tidak ada sesi pause yang bisa dilanjutkan")
-        }
-
-        if (screen == Screen.HOME) {
-            buildHomeScreen()
-        }
-    }
-
-    private fun pauseAllActiveSessions(activeTables: List<Int>) {
-        val now = System.currentTimeMillis()
-        var pausedCount = 0
-
-        for (tableNumber in activeTables) {
-            val endTime = preferences.getLong(
-                tableKey(tableNumber, "session_end_time"),
-                0L
-            )
-            val remaining = maxOf(0L, endTime - now)
-
-            if (remaining <= 0L) {
-                continue
-            }
-
-            preferences.edit()
-                .putBoolean(tableKey(tableNumber, "active"), false)
-                .putBoolean(tableKey(tableNumber, "paused"), true)
-                .putLong(tableKey(tableNumber, "session_end_time"), 0L)
-                .putLong(tableKey(tableNumber, "paused_remaining"), remaining)
-                .apply()
-
-            sendCommandToTable(tableNumber, "PAUSE")
-            pausedCount++
-        }
-
-        if (pausedCount > 0) {
-            showToast("$pausedCount sesi berhasil di-pause")
-        } else {
-            showToast("Tidak ada sesi aktif yang bisa di-pause")
-        }
-
-        if (screen == Screen.HOME) {
-            buildHomeScreen()
-        }
-    }
-
-    private fun startTableSession(hours: Int) {
-        val psType = getTablePsType(selectedTable)
-        val durationMinutes = getPsDuration(psType) * hours
-        val price = getPsPrice(psType) * hours
-        val endTime = System.currentTimeMillis() + durationMinutes * 60_000L
-
-        sessionPrice = price
-        pausedRemainingMillis = 0L
-        isPaused = false
-
-        preferences.edit()
-            .putLong(tableKey(selectedTable, "session_end_time"), endTime)
-            .putLong(tableKey(selectedTable, "session_price"), price)
-            .putBoolean(tableKey(selectedTable, "active"), true)
-            .putBoolean(tableKey(selectedTable, "paused"), false)
-            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
-            .apply()
-
-        sendCommandToTable(selectedTable, "START:${durationMinutes * 60L}")
-        buildTableScreen()
-    }
-
-    private fun addOneHour() {
-        val psType = getTablePsType(selectedTable)
-        val addedMillis = 3_600_000L
-        val addedPrice = getPsPrice(psType)
-
-        if (isPaused || preferences.getBoolean(tableKey(selectedTable, "paused"), false)) {
-            val currentPaused = maxOf(
-                pausedRemainingMillis,
-                preferences.getLong(
-                    tableKey(selectedTable, "paused_remaining"),
-                    0L
-                )
-            )
-
-            if (currentPaused <= 0L) return
-
-            sessionPrice += addedPrice
-            pausedRemainingMillis = currentPaused + addedMillis
-            isPaused = true
-
-            preferences.edit()
-                .putLong(tableKey(selectedTable, "session_price"), sessionPrice)
-                .putBoolean(tableKey(selectedTable, "active"), false)
-                .putBoolean(tableKey(selectedTable, "paused"), true)
-                .putLong(
-                    tableKey(selectedTable, "paused_remaining"),
-                    pausedRemainingMillis
-                )
-                .putLong(tableKey(selectedTable, "session_end_time"), 0L)
-                .apply()
-
-            sendCommandToTable(selectedTable, "ADD:3600")
-            buildTableScreen()
-            return
-        }
-
-        val currentEnd = preferences.getLong(
-            tableKey(selectedTable, "session_end_time"),
-            System.currentTimeMillis()
-        )
-
-        val baseEnd = maxOf(currentEnd, System.currentTimeMillis())
-        val newEnd = baseEnd + addedMillis
-        sessionPrice += addedPrice
-
-        preferences.edit()
-            .putLong(tableKey(selectedTable, "session_end_time"), newEnd)
-            .putLong(tableKey(selectedTable, "session_price"), sessionPrice)
-            .putBoolean(tableKey(selectedTable, "active"), true)
-            .putBoolean(tableKey(selectedTable, "paused"), false)
-            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
-            .apply()
-
-        isPaused = false
-        pausedRemainingMillis = 0L
-
-        sendCommandToTable(selectedTable, "ADD:3600")
-        buildTableScreen()
-    }
-
-    private fun pauseTable() {
-        val remaining = currentTableRemaining()
-        if (remaining <= 0L) return
-
-        pausedRemainingMillis = remaining
-        isPaused = true
-        sessionTimer?.cancel()
-        sessionTimer = null
-
-        preferences.edit()
-            .putBoolean(tableKey(selectedTable, "paused"), true)
-            .putLong(tableKey(selectedTable, "paused_remaining"), remaining)
-            .putLong(tableKey(selectedTable, "session_end_time"), 0L)
-            .apply()
-
-        sendCommandToTable(selectedTable, "PAUSE")
-        buildTableScreen()
-    }
-
-    private fun resumeTable() {
-        if (pausedRemainingMillis <= 0L) return
-
-        val newEnd = System.currentTimeMillis() + pausedRemainingMillis
-        isPaused = false
-
-        preferences.edit()
-            .putBoolean(tableKey(selectedTable, "paused"), false)
-            .putBoolean(tableKey(selectedTable, "active"), true)
-            .putLong(tableKey(selectedTable, "session_end_time"), newEnd)
-            .putLong(tableKey(selectedTable, "paused_remaining"), 0L)
-            .apply()
-
-        sendCommandToTable(
-            selectedTable,
-            "START:${pausedRemainingMillis / 1000L}"
-        )
-
-        pausedRemainingMillis = 0L
-        buildTableScreen()
-    }
-
-    private fun showFinishSessionConfirmation() {
-        AlertDialog.Builder(this)
-            .setTitle("Akhiri Sesi?")
-            .setMessage(
-                String.format(
-                    Locale.US,
-                    "Sesi Meja %02d akan diakhiri dan tidak bisa dilanjutkan lagi.",
-                    selectedTable
-                )
-            )
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("AKHIRI SESI") { _, _ ->
-                finishTableSession()
-            }
-            .show()
-    }
-
-    private fun finishTableSession() {
-        sessionTimer?.cancel()
-        sessionTimer = null
-
-        sendCommandToTable(selectedTable, "STOP")
-
-        preferences.edit()
-            .remove(tableKey(selectedTable, "session_end_time"))
-            .remove(tableKey(selectedTable, "session_price"))
-            .remove(tableKey(selectedTable, "paused_remaining"))
-            .putBoolean(tableKey(selectedTable, "active"), false)
-            .putBoolean(tableKey(selectedTable, "paused"), false)
-            .apply()
-
-        sessionPrice = 0L
-        pausedRemainingMillis = 0L
-        isPaused = false
-
-        buildTableScreen()
-    }
-
-    private fun startTableTimer(
-        tableNumber: Int,
-        remainingText: TextView,
-        statusText: TextView
-    ) {
-        val endTime = preferences.getLong(
-            tableKey(tableNumber, "session_end_time"),
-            0L
-        )
-
-        val remaining = endTime - System.currentTimeMillis()
-        if (remaining <= 0L) {
-            expireTableSession(tableNumber)
-            return
-        }
-
-        sessionTimer?.cancel()
-        sessionTimer = object : CountDownTimer(remaining, 1000L) {
-            override fun onTick(millisUntilFinished: Long) {
-                val current = maxOf(
-                    0L,
-                    endTime - System.currentTimeMillis()
-                )
-                remainingText.text = formatTime(current)
-                updateTimerAppearance(remainingText, statusText, current)
-            }
-
-            override fun onFinish() {
-                remainingText.text = "00:00:00"
-                verifyAndExpireTableSession(tableNumber)
-            }
-        }.start()
-    }
-
-    private fun verifyAndExpireTableSession(tableNumber: Int) {
-        // Jangan langsung mengirim STOP hanya karena timer lokal HP habis.
-        // TV adalah sumber kebenaran; cek STATUS terlebih dahulu agar koneksi
-        // yang sempat putus tidak membuat sesi TV terhenti secara keliru.
-        val requestGeneration = invalidateStatusRequests(tableNumber)
-        val host = getTableIp(tableNumber)
-
-        if (host.isBlank()) {
-            // Tidak ada IP TV. Hanya bersihkan sesi lokal karena tidak ada
-            // perangkat yang bisa dikirimi STOP.
-            expireTableSessionLocally(tableNumber, sendStop = false)
-            return
-        }
-
-        executor.execute {
-            try {
-                Socket(host, 8787).use { socket ->
-                    socket.soTimeout = 2500
-
-                    PrintWriter(socket.getOutputStream(), true).use { writer ->
-                        writer.println("STATUS")
-                        writer.flush()
-
-                        val response =
-                            socket.getInputStream()
-                                .bufferedReader()
-                                .readLine()
-                                ?.trim()
-                                .orEmpty()
-
-                        runOnUiThread {
-                            if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
-                                return@runOnUiThread
-                            }
-
-                            val validStatus = isValidTvStatusResponse(response)
-                            tvConnectionStatus[tableNumber] =
-                                if (validStatus) {
-                                    TvConnectionState.CONNECTED
-                                } else {
-                                    TvConnectionState.DISCONNECTED
-                                }
-
-                            if (!validStatus) {
-                                if (screen == Screen.TABLE && selectedTable == tableNumber) {
-                                    scheduleTableRecoveryRefresh()
-                                } else if (screen == Screen.HOME) {
-                                    scheduleHomeRefresh()
-                                }
-                                return@runOnUiThread
-                            }
-
-                            val parts = response.split("|")
-                            val status = parts.getOrNull(1)?.uppercase(Locale.US).orEmpty()
-                            val value = parts.getOrNull(2)?.toLongOrNull() ?: 0L
-
-                            when (status) {
-                                "ACTIVE" -> {
-                                    if (value > System.currentTimeMillis()) {
-                                        // TV masih aktif. Pulihkan timer HP dari
-                                        // waktu TV dan jangan kirim STOP.
-                                        applyTvStatus(
-                                            tableNumber,
-                                            response,
-                                            rebuildWhenChanged = true
-                                        )
-                                    } else {
-                                        expireTableSessionLocally(tableNumber, sendStop = true)
-                                    }
-                                }
-
-                                "PAUSED" -> {
-                                    if (value > 0L) {
-                                        // TV ternyata sedang pause. Pulihkan
-                                        // kondisi pause HP tanpa menghentikan TV.
-                                        applyTvStatus(
-                                            tableNumber,
-                                            response,
-                                            rebuildWhenChanged = true
-                                        )
-                                    } else {
-                                        expireTableSessionLocally(tableNumber, sendStop = true)
-                                    }
-                                }
-
-                                "IDLE" -> {
-                                    // TV sudah kosong, jadi sesi lokal memang
-                                    // boleh dibersihkan tanpa mengirim STOP lagi.
-                                    expireTableSessionLocally(tableNumber, sendStop = false)
-                                }
-
-                                else -> {
-                                    // Response tidak valid dianggap belum aman
-                                    // untuk mengakhiri sesi. Biarkan polling
-                                    // berikutnya melakukan recovery.
-                                    tvConnectionStatus[tableNumber] =
-                                        TvConnectionState.DISCONNECTED
-                                    if (screen == Screen.TABLE && selectedTable == tableNumber) {
-                                        scheduleTableRecoveryRefresh()
-                                    } else if (screen == Screen.HOME) {
-                                        scheduleHomeRefresh()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                runOnUiThread {
-                    if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
-                        return@runOnUiThread
-                    }
-
-                    // TV tidak dapat dihubungi. Jangan kirim STOP dan jangan
-                    // menghapus sesi lokal; polling berikutnya akan mencoba
-                    // recovery ketika TV kembali terhubung.
-                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
-                    if (screen == Screen.TABLE && selectedTable == tableNumber) {
-                        scheduleTableRecoveryRefresh()
-                    } else if (screen == Screen.HOME) {
-                        scheduleHomeRefresh()
-                    }
+        info.addView(summaryCard("Aktif", active.toString(), C.GREEN),
+            LinearLayout.LayoutParams(0, dp(82), 1f).apply { rightMargin = dp(5) })
+        info.addView(summaryCard("Tersedia", available.toString(), C.TEXT),
+            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5) })
+
+        content.addView(info, wrap().apply { bottomMargin = dp(18) })
+
+        for (table in tables) {
+            val row = card(
+                if (table.active) C.ACTIVE_BG else C.WHITE,
+                18
+            ).apply {
+                setPadding(dp(15), dp(12), dp(15), dp(12))
+                setOnClickListener {
+                    selectedTable = table.number
+                    showTableDetail()
                 }
             }
-        }
-    }
 
-    private fun expireTableSession(tableNumber: Int) {
-        // Dipertahankan untuk alur yang memang sudah memastikan sesi harus
-        // berakhir. Untuk timer normal, gunakan verifyAndExpireTableSession().
-        expireTableSessionLocally(tableNumber, sendStop = true)
-    }
-
-    private fun expireTableSessionLocally(
-        tableNumber: Int,
-        sendStop: Boolean
-    ) {
-        sessionTimer?.cancel()
-        sessionTimer = null
-
-        if (sendStop) {
-            sendCommandToTable(tableNumber, "STOP")
-        }
-
-        val completedAmount = preferences.getLong(tableKey(tableNumber, "session_price"), 0L)
-        addTodayIncome(completedAmount)
-
-        preferences.edit()
-            .remove(tableKey(tableNumber, "session_end_time"))
-            .remove(tableKey(tableNumber, "session_price"))
-            .remove(tableKey(tableNumber, "paused_remaining"))
-            .putBoolean(tableKey(tableNumber, "active"), false)
-            .putBoolean(tableKey(tableNumber, "paused"), false)
-            .apply()
-
-        if (screen == Screen.TABLE && selectedTable == tableNumber) {
-            sessionPrice = 0L
-            pausedRemainingMillis = 0L
-            isPaused = false
-            buildTableScreen()
-        } else if (screen == Screen.HOME) {
-            buildHomeScreen()
-        }
-    }
-
-    private fun scheduleTableRecoveryRefresh() {
-        if (screen != Screen.TABLE) return
-        statusHandler.removeCallbacks(statusPollRunnable)
-        statusHandler.postDelayed(statusPollRunnable, 3_000L)
-    }
-
-    private fun updateTimerAppearance(
-        remainingText: TextView,
-        statusText: TextView,
-        remaining: Long
-    ) {
-        if (remaining <= 300_000L) {
-            remainingText.setTextColor(Color.rgb(135, 92, 92))
-            statusText.text = "● Sisa waktu kurang dari 5 menit"
-        } else {
-            remainingText.setTextColor(Color.rgb(48, 57, 72))
-            statusText.text = "● Sesi aktif"
-        }
-    }
-
-    private fun restoreTableSession(tableNumber: Int) {
-        sessionPrice = preferences.getLong(
-            tableKey(tableNumber, "session_price"),
-            0L
-        )
-        isPaused = preferences.getBoolean(
-            tableKey(tableNumber, "paused"),
-            false
-        )
-        pausedRemainingMillis = preferences.getLong(
-            tableKey(tableNumber, "paused_remaining"),
-            0L
-        )
-
-        if (isPaused) return
-
-        val endTime = preferences.getLong(
-            tableKey(tableNumber, "session_end_time"),
-            0L
-        )
-
-        if (endTime > 0L && endTime <= System.currentTimeMillis()) {
-            verifyAndExpireTableSession(tableNumber)
-        }
-    }
-
-    private fun isCurrentTableActive(): Boolean =
-        preferences.getBoolean(
-            tableKey(selectedTable, "active"),
-            false
-        ) && !isPaused
-
-    private fun currentTableRemaining(): Long {
-        return if (isPaused) {
-            pausedRemainingMillis
-        } else {
-            maxOf(
-                0L,
-                preferences.getLong(
-                    tableKey(selectedTable, "session_end_time"),
-                    0L
-                ) - System.currentTimeMillis()
-            )
-        }
-    }
-
-    private fun isTableActive(tableNumber: Int): Boolean {
-        if (preferences.getBoolean(tableKey(tableNumber, "paused"), false)) {
-            return false
-        }
-        return preferences.getBoolean(
-            tableKey(tableNumber, "active"),
-            false
-        ) && preferences.getLong(
-            tableKey(tableNumber, "session_end_time"),
-            0L
-        ) > System.currentTimeMillis()
-    }
-
-    private fun isTablePaused(tableNumber: Int): Boolean =
-        preferences.getBoolean(tableKey(tableNumber, "paused"), false)
-
-    private fun getTableRemaining(tableNumber: Int): Long {
-        return if (isTablePaused(tableNumber)) {
-            preferences.getLong(
-                tableKey(tableNumber, "paused_remaining"),
-                0L
-            )
-        } else {
-            maxOf(
-                0L,
-                preferences.getLong(
-                    tableKey(tableNumber, "session_end_time"),
-                    0L
-                ) - System.currentTimeMillis()
-            )
-        }
-    }
-
-    private fun countActiveTables(): Int {
-        var count = 0
-        for (table in 1..TABLE_COUNT) {
-            if (isTableActive(table) || isTablePaused(table)) count++
-        }
-        return count
-    }
-
-    private fun buildPsSettingsScreen() {
-        buildBase("Harga & Durasi PS", "Atur durasi dan harga dasar PS3, PS4, dan PS5")
-
-        val spinner = Spinner(this)
-        spinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            PS_TYPES
-        )
-
-        root.addView(spinner, matchParentWrapContent())
-
-        val durationInput = createNumberInput("Durasi dalam menit")
-        val priceInput = createNumberInput("Harga dalam rupiah")
-        attachNominalFormatter(priceInput)
-
-        root.addView(durationInput, matchParentWrapContent())
-        root.addView(priceInput, matchParentWrapContent())
-
-        fun load() {
-            val type = PS_TYPES[spinner.selectedItemPosition]
-            durationInput.setText(getPsDuration(type).toString())
-            priceInput.setText(getPsPrice(type).toString())
-        }
-
-        spinner.setSelection(0)
-        load()
-
-        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: android.widget.AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                load()
-            }
-
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-        }
-
-        val save = createPrimaryButton("SIMPAN")
-        save.setOnClickListener {
-            val type = PS_TYPES[spinner.selectedItemPosition]
-            val duration = durationInput.text.toString()
-                .trim().toLongOrNull()?.coerceAtLeast(1L) ?: 60L
-            val price = parseNominal(priceInput.text.toString())
-
-            preferences.edit()
-                .putInt(psKey(type, "duration"), duration.toInt())
-                .putLong(psKey(type, "price"), price)
-                .apply()
-
-            showToast("Pengaturan $type tersimpan")
-        }
-        root.addView(save, matchParentButton())
-    }
-
-    private fun buildTableSettingsScreen() {
-        buildBase(
-            "Pengaturan Meja",
-            "Atur jenis PS dan IP Android TV setiap meja"
-        )
-
-        val scrollInfo = TextView(this).apply {
-            text = "Pilih meja untuk mengubah PS, IP TV, dan tes koneksi."
-            textSize = 13f
-            setTextColor(Color.rgb(120, 125, 135))
-            setPadding(dp(2), dp(0), dp(2), dp(10))
-        }
-        root.addView(scrollInfo, matchParentWrapContent())
-
-        val list = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        for (tableNumber in 1..TABLE_COUNT) {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                setBackgroundColor(Color.WHITE)
-            }
-
-            val header = LinearLayout(this).apply {
+            val line = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
 
-            val number = TextView(this).apply {
-                text = String.format(Locale.US, "%02d", tableNumber)
-                textSize = 24f
-                setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.rgb(45, 48, 55))
-                gravity = Gravity.CENTER
-            }
-            header.addView(
-                number,
-                LinearLayout.LayoutParams(dp(48), dp(42))
-            )
-
-            val info = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(10), 0, dp(8), 0)
-            }
-
-            val psText = TextView(this@MainActivity).apply {
-                text = getTablePsType(tableNumber)
+            line.addView(TextView(this@MainActivity).apply {
+                text = "Meja ${String.format("%02d", table.number)}"
                 textSize = 15f
-                setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.rgb(55, 58, 66))
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(C.TEXT)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f))
+
+            line.addView(TextView(this@MainActivity).apply {
+                text = if (table.active) formatTime(remaining(table)) else "Tersedia"
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (table.active) C.GREEN else C.MUTED)
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(dp(105), dp(46)))
+
+            row.addView(line)
+            content.addView(row, wrap().apply { bottomMargin = dp(8) })
+        }
+    }
+
+    private fun showTableDetail() {
+        currentPage = Page.TABLE
+        homeTimerViews.clear()
+        detailTimerView = null
+        content.removeAllViews()
+
+        val table = tables[selectedTable - 1]
+
+        setHeader(
+            "Meja ${String.format("%02d", table.number)}",
+            "${table.psType} • ${if (table.active) "Sesi aktif" else "Belum ada sesi"}"
+        )
+
+        val hero = card(
+            if (table.active) C.ACTIVE_BG else C.WHITE,
+            24
+        ).apply {
+            setPadding(dp(18), dp(17), dp(18), dp(17))
+        }
+
+        hero.addView(TextView(this).apply {
+            text = if (table.active && table.paused) "SESI DIJEDA"
+            else if (table.active) "SESI AKTIF"
+            else "MEJA SIAP"
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (table.active) C.GREEN else C.MUTED)
+        })
+
+        detailTimerView = TextView(this).apply {
+            text = if (table.active) formatTime(remaining(table)) else "00:00:00"
+            textSize = 34f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+            setPadding(0, dp(5), 0, dp(3))
+        }
+        hero.addView(detailTimerView)
+
+        hero.addView(TextView(this).apply {
+            text = if (table.active) {
+                "Tarif ${formatRupiah(priceFor(table.psType))} / jam"
+            } else {
+                "Pilih durasi untuk memulai sesi"
+            }
+            textSize = 10f
+            setTextColor(C.MUTED)
+        })
+
+        content.addView(hero, wrap().apply { bottomMargin = dp(12) })
+
+        if (!table.active) {
+            sectionTitle("Mulai Sesi")
+
+            val durations = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
             }
 
-            val ipText = TextView(this@MainActivity).apply {
-                text = if (getTableIp(tableNumber).isBlank()) {
-                    "IP TV belum diatur"
-                } else {
-                    getTableIp(tableNumber)
-                }
-                textSize = 12f
-                setTextColor(Color.rgb(125, 130, 140))
-            }
-
-            val statusText = TextView(this@MainActivity).apply {
-                textSize = 11f
-                setPadding(0, dp(2), 0, 0)
-            }
-
-            fun refreshStatus() {
-                if (getTableIp(tableNumber).isBlank()) {
-                    statusText.text = "● BELUM DIATUR"
-                    statusText.setTextColor(Color.rgb(145, 150, 158))
-                } else {
-                    when (getTvConnectionState(tableNumber)) {
-                        TvConnectionState.CONNECTED -> {
-                            statusText.text = "● CONNECT"
-                            statusText.setTextColor(Color.rgb(55, 170, 95))
-                        }
-                        TvConnectionState.DISCONNECTED -> {
-                            statusText.text = "● OFFLINE"
-                            statusText.setTextColor(Color.rgb(190, 90, 90))
-                        }
-                        TvConnectionState.UNCHECKED -> {
-                            statusText.text = "● BELUM DICEK"
-                            statusText.setTextColor(Color.rgb(145, 150, 158))
-                        }
-                    }
-                }
-            }
-
-            info.addView(psText, matchParentWrapContent())
-            info.addView(ipText, matchParentWrapContent())
-            info.addView(statusText, matchParentWrapContent())
-
-            header.addView(
-                info,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            )
-
-            val editButton = createSmallDashboardButton("EDIT")
-            editButton.setOnClickListener {
-                showTableEditDialog(
-                    tableNumber = tableNumber,
-                    onSaved = {
-                        psText.text = getTablePsType(tableNumber)
-                        ipText.text = if (getTableIp(tableNumber).isBlank()) {
-                            "IP TV belum diatur"
-                        } else {
-                            getTableIp(tableNumber)
-                        }
-                        refreshStatus()
+            listOf(30L, 60L, 120L).forEachIndexed { index, min ->
+                val b = softButton("${min} Menit")
+                b.setOnClickListener { startSession(table, min) }
+                durations.addView(
+                    b,
+                    LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                        if (index > 0) leftMargin = dp(4)
+                        if (index < 2) rightMargin = dp(4)
                     }
                 )
             }
-            header.addView(
-                editButton,
-                LinearLayout.LayoutParams(dp(64), dp(32))
-            )
 
-            card.addView(header, matchParentWrapContent())
-            list.addView(
-                card,
-                matchParentWrapContent().apply {
-                    bottomMargin = dp(8)
-                }
-            )
+            content.addView(durations, wrap().apply { bottomMargin = dp(9) })
 
-            refreshStatus()
+            val custom = primaryButton("Mulai Durasi Custom")
+            custom.setOnClickListener { customStartDialog(table) }
+            content.addView(custom, fullButton())
+        } else {
+            val controls = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+
+            val pause = softButton(if (table.paused) "Lanjut" else "Pause")
+            pause.setOnClickListener {
+                if (table.paused) resumeSession(table) else pauseSession(table)
+                showTableDetail()
+            }
+
+            val add = softButton("+30 Menit")
+            add.setOnClickListener {
+                addTime(table, 30)
+                showTableDetail()
+            }
+
+            controls.addView(pause, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(4) })
+            controls.addView(add, LinearLayout.LayoutParams(0, dp(52), 1f).apply { leftMargin = dp(4) })
+
+            content.addView(controls, wrap().apply { bottomMargin = dp(8) })
+
+            val fnbButton = primaryButton("Tambah Pesanan F&B")
+            fnbButton.setOnClickListener {
+                currentPage = Page.FNB
+                showFnb()
+            }
+            content.addView(fnbButton, fullButton())
+
+            val finish = dangerButton("Selesaikan Sesi")
+            finish.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Selesaikan sesi?")
+                    .setMessage("Sesi Meja ${String.format("%02d", table.number)} akan dihentikan.")
+                    .setNegativeButton("BATAL", null)
+                    .setPositiveButton("SELESAI") { _, _ ->
+                        finishSession(table, true)
+                        showTableDetail()
+                    }
+                    .show()
+            }
+            content.addView(finish, fullButton())
         }
 
-        root.addView(list, matchParentWrapContent())
+        sectionTitle("Informasi Meja")
 
-        val back = createSoftButton("KEMBALI")
-        back.setOnClickListener {
-            screen = Screen.HOME
-            buildHomeScreen()
-        }
-        root.addView(back, matchParentButton())
+        val info = card(C.WHITE, 18)
+        info.setPadding(dp(15), dp(12), dp(15), dp(12))
+
+        infoRow(info, "PlayStation", table.psType)
+        infoRow(info, "Tarif / jam", formatRupiah(priceFor(table.psType)))
+        infoRow(info, "Tagihan PS", formatRupiah(table.bill))
+        infoRow(info, "TV", if (table.tvIp.isBlank()) "Belum diatur" else table.tvIp)
+
+        content.addView(info, wrap().apply { bottomMargin = dp(10) })
+
+        val tv = softButton("Pengaturan TV Meja")
+        tv.setOnClickListener { showTvDialog(table) }
+        content.addView(tv, fullButton())
+
+        val back = softButton("Kembali ke Daftar Meja")
+        back.setOnClickListener { showTables() }
+        content.addView(back, fullButton())
     }
 
-    private fun showTableEditDialog(
-        tableNumber: Int,
-        onSaved: () -> Unit
-    ) {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(4), dp(20), dp(4))
+    // -------------------------------------------------------------------------
+    // F&B
+    // -------------------------------------------------------------------------
+
+    private fun showFnb() {
+        currentPage = Page.FNB
+        content.removeAllViews()
+        setHeader("F&B", "Pesanan cafe terintegrasi dengan meja PlayStation")
+
+        val selected = card(C.WHITE, 20)
+        selected.setPadding(dp(15), dp(13), dp(15), dp(13))
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
 
-        val psSpinner = Spinner(this)
-        psSpinner.adapter = ArrayAdapter(
+        row.addView(TextView(this).apply {
+            text = "Pesanan untuk"
+            textSize = 10f
+            setTextColor(C.MUTED)
+        }, LinearLayout.LayoutParams(0, dp(25), 1f))
+
+        val tableButton = smallButton("Meja ${String.format("%02d", selectedTable)}")
+        tableButton.setOnClickListener { chooseFnbTable() }
+        row.addView(tableButton, LinearLayout.LayoutParams(dp(108), dp(40)))
+
+        selected.addView(row)
+        content.addView(selected, wrap().apply { bottomMargin = dp(12) })
+
+        val filters = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        listOf("Semua", "Minuman", "Makanan").forEach { category ->
+            val b = if (category == fnbFilter) primaryButton(category) else softButton(category)
+            b.textSize = 10f
+            b.setOnClickListener {
+                fnbFilter = category
+                showFnb()
+            }
+            filters.addView(
+                b,
+                LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                    leftMargin = dp(3); rightMargin = dp(3)
+                }
+            )
+        }
+
+        content.addView(filters, wrap().apply { bottomMargin = dp(15) })
+
+        val visibleProducts = fnbProducts.filter {
+            fnbFilter == "Semua" || it.category == fnbFilter
+        }
+
+        visibleProducts.forEach { product ->
+            val productCard = card(C.WHITE, 18)
+            productCard.setPadding(dp(14), dp(11), dp(12), dp(11))
+
+            val productRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val icon = if (product.category == "Minuman") "☕" else "🍜"
+
+            productRow.addView(TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 23f
+                gravity = Gravity.CENTER
+                background = rounded(C.GRAY_BG, dp(14))
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+                rightMargin = dp(10)
+            })
+
+            val details = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+
+            details.addView(TextView(this@MainActivity).apply {
+                text = product.name
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(C.TEXT)
+            })
+
+            details.addView(TextView(this@MainActivity).apply {
+                text = product.category
+                textSize = 9f
+                setTextColor(C.LIGHT_MUTED)
+                setPadding(0, dp(2), 0, 0)
+            })
+
+            productRow.addView(details, LinearLayout.LayoutParams(0, dp(52), 1f))
+
+            productRow.addView(TextView(this@MainActivity).apply {
+                text = formatRupiah(product.price)
+                textSize = 11f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(C.GREEN)
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(dp(92), dp(52)))
+
+            val plus = smallButton("+")
+            plus.setOnClickListener {
+                addFnbOrder(product, selectedTable)
+            }
+            productRow.addView(plus, LinearLayout.LayoutParams(dp(44), dp(44)))
+
+            productCard.addView(productRow)
+            content.addView(productCard, wrap().apply { bottomMargin = dp(8) })
+        }
+
+        sectionTitle("Ringkasan")
+
+        val total = todayFnb()
+        val summary = card(C.WHITE, 20)
+        summary.setPadding(dp(15), dp(13), dp(15), dp(13))
+
+        infoRow(summary, "Jumlah order", orders.size.toString())
+        infoRow(summary, "Total F&B", formatRupiah(total))
+
+        content.addView(summary)
+    }
+
+    private fun addFnbOrder(product: FnbProduct, table: Int) {
+        val map = mutableMapOf(product.id to 1)
+        orders.add(
+            FnbOrder(
+                id = System.currentTimeMillis(),
+                table = table,
+                items = map,
+                total = product.price
+            )
+        )
+        Toast.makeText(
             this,
-            android.R.layout.simple_spinner_dropdown_item,
-            PS_TYPES
-        )
-        psSpinner.setSelection(
-            PS_TYPES.indexOf(getTablePsType(tableNumber)).coerceAtLeast(0)
-        )
-        container.addView(psSpinner, matchParentWrapContent())
+            "${product.name} ditambahkan • Meja ${String.format("%02d", table)}",
+            Toast.LENGTH_SHORT
+        ).show()
+        showFnb()
+    }
 
-        val ipInput = createInput("IP Android TV, contoh 192.168.1.20")
-        ipInput.setText(getTableIp(tableNumber))
-        container.addView(ipInput, matchParentWrapContent())
+    private fun chooseFnbTable() {
+        val labels = tables.map {
+            "Meja ${String.format("%02d", it.number)}" +
+                if (it.active) " • ${it.psType}" else " • Tersedia"
+        }.toTypedArray()
 
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(String.format(Locale.US, "Pengaturan %02d", tableNumber))
-            .setView(container)
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("SIMPAN", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val ps = PS_TYPES[psSpinner.selectedItemPosition]
-                val ip = ipInput.text.toString().trim()
-
-                if (ip.isBlank()) {
-                    ipInput.error = "IP Android TV wajib diisi"
-                    return@setOnClickListener
-                }
-
-                val oldIp = getTableIp(tableNumber)
-
-                preferences.edit()
-                    .putString(tableKey(tableNumber, "ps_type"), ps)
-                    .putString(tableKey(tableNumber, "tv_ip"), ip)
-                    .apply()
-
-                if (oldIp != ip) {
-                    tvConnectionStatus[tableNumber] = TvConnectionState.UNCHECKED
-                }
-
-                onSaved()
-                showToast(String.format(Locale.US, "Pengaturan %02d tersimpan", tableNumber))
+        AlertDialog.Builder(this)
+            .setTitle("Pilih meja")
+            .setSingleChoiceItems(labels, selectedTable - 1) { dialog, which ->
+                selectedTable = which + 1
                 dialog.dismiss()
+                showFnb()
             }
-        }
-
-        dialog.show()
+            .show()
     }
 
-    private fun buildTvSettingsScreen() {
-        buildBase("Pengaturan Tampilan TV", "Atur tampilan yang muncul saat sesi berakhir")
+    // -------------------------------------------------------------------------
+    // TRANSACTIONS
+    // -------------------------------------------------------------------------
 
-        val tableLabel = createSectionLabel("Pilih TV")
-        root.addView(tableLabel, matchParentWrapContent())
+    private fun showTransactions() {
+        currentPage = Page.TRANSACTIONS
+        content.removeAllViews()
+        setHeader("Transaksi", "Ringkasan pendapatan rental & F&B")
 
-        val tableSpinner = Spinner(this)
-        tableSpinner.adapter = ArrayAdapter(
+        val psRevenue = tables.sumOf { it.bill }
+        val fnbRevenue = todayFnb()
+
+        val total = card(C.TEXT, 22)
+        total.setPadding(dp(18), dp(16), dp(18), dp(16))
+
+        total.addView(TextView(this).apply {
+            text = "TOTAL PENDAPATAN"
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(205, 214, 222))
+        })
+
+        total.addView(TextView(this).apply {
+            text = formatRupiah(psRevenue + fnbRevenue)
+            textSize = 27f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(5), 0, dp(2))
+        })
+
+        total.addView(TextView(this).apply {
+            text = "Rental PS ${formatRupiah(psRevenue)} • F&B ${formatRupiah(fnbRevenue)}"
+            textSize = 9f
+            setTextColor(Color.rgb(183, 195, 205))
+        })
+
+        content.addView(total, wrap().apply { bottomMargin = dp(15) })
+
+        sectionTitle("Aktivitas F&B")
+
+        if (orders.isEmpty()) {
+            val empty = card(C.WHITE, 18)
+            empty.setPadding(dp(18), dp(20), dp(18), dp(20))
+            empty.addView(TextView(this).apply {
+                text = "Belum ada transaksi F&B"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(C.MUTED)
+            })
+            content.addView(empty)
+        } else {
+            orders.asReversed().forEach { order ->
+                val item = card(C.WHITE, 18)
+                item.setPadding(dp(14), dp(11), dp(14), dp(11))
+
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                row.addView(TextView(this@MainActivity).apply {
+                    text = "Meja ${String.format("%02d", order.table)}"
+                    textSize = 13f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(C.TEXT)
+                }, LinearLayout.LayoutParams(0, dp(45), 1f))
+
+                row.addView(TextView(this@MainActivity).apply {
+                    text = formatRupiah(order.total)
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(C.GREEN)
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(dp(100), dp(45)))
+
+                item.addView(row)
+                content.addView(item, wrap().apply { bottomMargin = dp(7) })
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SESSION / TV
+    // -------------------------------------------------------------------------
+
+    private fun startSession(table: TableState, minutes: Long) {
+        table.active = true
+        table.paused = false
+        table.endAt = System.currentTimeMillis() + minutes * 60_000L
+        table.pausedRemaining = 0L
+        table.bill = max(table.bill, priceFor(table.psType) * minutes / 60L)
+
+        saveTables()
+        sendTv(table, "START:${minutes * 60L}")
+        Toast.makeText(
             this,
-            android.R.layout.simple_spinner_dropdown_item,
-            (1..TABLE_COUNT).map { String.format(Locale.US, "%02d", it) }
-        )
-        root.addView(tableSpinner, matchParentWrapContent())
+            "Sesi Meja ${String.format("%02d", table.number)} dimulai",
+            Toast.LENGTH_SHORT
+        ).show()
+        showTableDetail()
+    }
 
-        val titleLabel = createSectionLabel("Judul waktu habis")
-        root.addView(titleLabel, matchParentWrapContent())
-        val titleInput = createInput("Contoh: WAKTU HABIS")
-        root.addView(titleInput, matchParentWrapContent())
-
-        val messageLabel = createSectionLabel("Pesan")
-        root.addView(messageLabel, matchParentWrapContent())
-        val messageInput = createInput("Contoh: Silakan ke kasir")
-        root.addView(messageInput, matchParentWrapContent())
-
-        val billLabel = createSectionLabel("Tagihan")
-        root.addView(billLabel, matchParentWrapContent())
-        val billInput = createNumberInput("Contoh: Rp10.000")
-        attachNominalFormatter(billInput)
-        root.addView(billInput, matchParentWrapContent())
-
-        val qrisLabel = createSectionLabel("QRIS")
-        root.addView(qrisLabel, matchParentWrapContent())
-
-        val qrisPreview = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            setBackgroundColor(Color.rgb(245, 246, 248))
-            contentDescription = "Preview QRIS"
+    private fun customStartDialog(table: TableState) {
+        val input = EditText(this).apply {
+            hint = "Durasi dalam menit"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
         }
-        root.addView(
-            qrisPreview,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(220)
-            ).apply {
-                setMargins(dp(4), dp(4), dp(4), dp(8))
-            }
-        )
 
-        val qrisStatus = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.rgb(108, 118, 133))
-            gravity = Gravity.CENTER
-            setPadding(dp(4), 0, dp(4), dp(8))
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            addView(input, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+            ))
         }
-        root.addView(qrisStatus, matchParentWrapContent())
 
-        qrisPreviewForCurrentScreen = qrisPreview
-        qrisStatusForCurrentScreen = qrisStatus
-
-        fun loadQrisPreview(table: Int) {
-            val base64 = preferences.getString(
-                tableKey(table, "qris_image_base64"),
-                ""
-            ).orEmpty()
-            pendingQrisBase64 = base64
-            qrisPickerTable = table
-
-            if (base64.isBlank()) {
-                qrisPreview.setImageDrawable(null)
-                qrisStatus.text = "Belum ada gambar QRIS"
-                return
+        AlertDialog.Builder(this)
+            .setTitle("Durasi custom")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("MULAI") { _, _ ->
+                val min = input.text.toString().toLongOrNull()
+                if (min != null && min > 0) startSession(table, min)
+                else Toast.makeText(this, "Durasi tidak valid", Toast.LENGTH_SHORT).show()
             }
+            .show()
+    }
 
+    private fun pauseSession(table: TableState) {
+        if (!table.active || table.paused) return
+        table.pausedRemaining = remaining(table)
+        table.paused = true
+        table.endAt = 0L
+        saveTables()
+        sendTv(table, "PAUSE")
+    }
+
+    private fun resumeSession(table: TableState) {
+        if (!table.active || !table.paused) return
+        table.endAt = System.currentTimeMillis() + table.pausedRemaining
+        table.pausedRemaining = 0L
+        table.paused = false
+        saveTables()
+        sendTv(table, "RESUME")
+    }
+
+    private fun addTime(table: TableState, minutes: Long) {
+        if (!table.active) return
+
+        if (table.paused) {
+            table.pausedRemaining += minutes * 60_000L
+        } else {
+            table.endAt += minutes * 60_000L
+        }
+
+        table.bill += priceFor(table.psType) * minutes / 60L
+        saveTables()
+        sendTv(table, "ADD:${minutes * 60L}")
+    }
+
+    private fun finishSession(table: TableState, send: Boolean) {
+        table.active = false
+        table.paused = false
+        table.endAt = 0L
+        table.pausedRemaining = 0L
+        saveTables()
+
+        if (send) sendTv(table, "STOP")
+    }
+
+    private fun remaining(table: TableState): Long {
+        return if (!table.active) 0L
+        else if (table.paused) table.pausedRemaining
+        else max(0L, table.endAt - System.currentTimeMillis())
+    }
+
+    private fun showTvDialog(table: TableState) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), dp(2), dp(4), 0)
+        }
+
+        val ip = EditText(this).apply {
+            hint = "IP Android TV, contoh 192.168.1.20"
+            setSingleLine(true)
+            setText(table.tvIp)
+        }
+
+        box.addView(ip, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+        ))
+
+        val bill = EditText(this).apply {
+            hint = "Tagihan TV"
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(if (table.bill == 0L) "" else table.bill.toString())
+        }
+
+        box.addView(bill, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+        ))
+
+        AlertDialog.Builder(this)
+            .setTitle("TV Meja ${String.format("%02d", table.number)}")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setNeutralButton("BLANK TV") { _, _ ->
+                table.tvIp = ip.text.toString().trim()
+                saveTables()
+                sendTv(table, "BLANK")
+            }
+            .setPositiveButton("SIMPAN") { _, _ ->
+                table.tvIp = ip.text.toString().trim()
+                table.bill = parseNominal(bill.text.toString())
+                saveTables()
+                Toast.makeText(this, "Pengaturan TV disimpan", Toast.LENGTH_SHORT).show()
+                showTableDetail()
+            }
+            .show()
+    }
+
+    private fun sendTv(table: TableState, command: String) {
+        if (table.tvIp.isBlank()) return
+
+        executor.execute {
             try {
-                val bytes = Base64.decode(base64, Base64.DEFAULT)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap != null) {
-                    qrisPreview.setImageBitmap(bitmap)
-                    qrisStatus.text = "QRIS tersimpan di HP"
-                } else {
-                    qrisPreview.setImageDrawable(null)
-                    qrisStatus.text = "Gambar QRIS tidak valid"
-                }
-            } catch (_: Exception) {
-                qrisPreview.setImageDrawable(null)
-                qrisStatus.text = "Gambar QRIS tidak valid"
-            }
-        }
-
-        tableSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: android.widget.AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                loadQrisPreview(position + 1)
-            }
-
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-        }
-
-        val chooseQris = createSoftButton("PILIH GAMBAR QRIS")
-        chooseQris.setOnClickListener {
-            qrisPickerTable = tableSpinner.selectedItemPosition + 1
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "image/*"
-            }
-            startActivityForResult(intent, REQUEST_QRIS_IMAGE)
-        }
-        root.addView(chooseQris, matchParentButton())
-
-        val save = createPrimaryButton("SIMPAN KE TV")
-        save.setOnClickListener {
-            val table = tableSpinner.selectedItemPosition + 1
-            val title = titleInput.text.toString().trim()
-            val message = messageInput.text.toString().trim()
-            val bill = billInput.text.toString().trim()
-
-            if (title.isNotEmpty()) {
-                sendCommandToTable(table, "SET_TITLE:$title")
-            }
-            if (message.isNotEmpty()) {
-                sendCommandToTable(table, "SET_MESSAGE:$message")
-            }
-            if (bill.isNotEmpty()) {
-                sendCommandToTable(table, "SET_BILL:$bill")
-            } else {
-                sendCommandToTable(table, "CLEAR_BILL")
-            }
-
-            if (pendingQrisBase64.isNotBlank()) {
-                sendCommandToTable(table, "SET_IMAGE:$pendingQrisBase64")
-            } else {
-                sendCommandToTable(table, "CLEAR_IMAGE")
-            }
-
-            showToast("Tampilan TV ${String.format(Locale.US, "%02d", table)} disimpan")
-        }
-        root.addView(save, matchParentButton())
-
-        val clearQris = createSoftButton("HAPUS QRIS DI TV")
-        clearQris.setOnClickListener {
-            val table = tableSpinner.selectedItemPosition + 1
-            preferences.edit()
-                .remove(tableKey(table, "qris_image_base64"))
-                .apply()
-            pendingQrisBase64 = ""
-            qrisPreview.setImageDrawable(null)
-            qrisStatus.text = "Belum ada gambar QRIS"
-            sendCommandToTable(table, "CLEAR_IMAGE")
-            showToast("QRIS TV ${String.format(Locale.US, "%02d", table)} dihapus")
-        }
-        root.addView(clearQris, matchParentButton())
-
-        loadQrisPreview(1)
-    }
-
-    private fun encodeQrisImage(uri: android.net.Uri): String? {
-        return try {
-            val input = contentResolver.openInputStream(uri) ?: return null
-            input.use { stream ->
-                val source = BitmapFactory.decodeStream(stream) ?: return null
-                val maxSize = 700
-                val scale = minOf(1f, maxSize.toFloat() / maxOf(source.width, source.height).toFloat())
-                val bitmap = if (scale < 1f) {
-                    Bitmap.createScaledBitmap(
-                        source,
-                        (source.width * scale).toInt().coerceAtLeast(1),
-                        (source.height * scale).toInt().coerceAtLeast(1),
-                        true
-                    )
-                } else {
-                    source
-                }
-
-                val output = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.WEBP, 70, output)
-
-                if (bitmap !== source) {
-                    bitmap.recycle()
-                }
-                source.recycle()
-
-                Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    override fun onPause() {
-        // Simpan posisi sebelum Activity kehilangan focus. Jangan rebuild UI di sini.
-        if (screen == Screen.HOME) {
-            lastScrollY = homeScrollView?.scrollY ?: lastScrollY
-        }
-        super.onPause()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == REQUEST_PROFILE_IMAGE && resultCode == RESULT_OK) {
-            val uri = data?.data ?: return
-            executor.execute {
-                val encoded = encodeQrisImage(uri)
-                runOnUiThread {
-                    if (encoded.isNullOrBlank()) {
-                        showToast("Gagal membaca gambar logo")
-                        return@runOnUiThread
-                    }
-                    preferences.edit().putString("profile_logo_base64", encoded).apply()
-                    if (screen == Screen.HOME) buildHomeScreen()
-                    else if (screen == Screen.PS_SETTINGS || screen == Screen.TABLE_SETTINGS || screen == Screen.TV_SETTINGS) buildSettingsMenuScreen()
-                    showToast("Logo profil berhasil diperbarui")
-                }
-            }
-            return
-        }
-
-        if (requestCode != REQUEST_QRIS_IMAGE || resultCode != RESULT_OK) {
-            return
-        }
-
-        val uri = data?.data ?: return
-        val table = qrisPickerTable
-
-        executor.execute {
-            val encoded = encodeQrisImage(uri)
-
-            runOnUiThread {
-                if (encoded.isNullOrBlank()) {
-                    showToast("Gagal membaca gambar QRIS")
-                    return@runOnUiThread
-                }
-
-                pendingQrisBase64 = encoded
-                preferences.edit()
-                    .putString(tableKey(table, "qris_image_base64"), encoded)
-                    .apply()
-
-                if (table == qrisPickerTable) {
-                    try {
-                        val bytes = Base64.decode(encoded, Base64.DEFAULT)
-                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        qrisPreviewForCurrentScreen?.setImageBitmap(bitmap)
-                    } catch (_: Exception) {
-                    }
-                }
-
-                qrisStatusForCurrentScreen?.text = "QRIS siap disimpan ke TV"
-                showToast("QRIS TV ${String.format(Locale.US, "%02d", table)} siap")
-            }
-        }
-    }
-
-    private var qrisPreviewForCurrentScreen: ImageView? = null
-    private var qrisStatusForCurrentScreen: TextView? = null
-
-    private fun createSectionLabel(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 14f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(10), dp(4), dp(4))
-        }
-    }
-
-    private fun scheduleHomeRefresh() {
-        if (homeRefreshScheduled) return
-        homeRefreshScheduled = true
-
-        statusHandler.postDelayed({
-            homeRefreshScheduled = false
-            if (screen != Screen.HOME) return@postDelayed
-
-            // Jangan mengganti seluruh hierarchy saat jari masih berada di layar.
-            // Replacing ScrollView ketika sedang disentuh adalah penyebab utama
-            // efek berkedip dan scroll lompat acak.
-            val currentScroll = homeScrollView
-            if (currentScroll != null && currentScroll.isPressed) {
-                scheduleHomeRefresh()
-                return@postDelayed
-            }
-
-            lastScrollY = currentScroll?.scrollY ?: lastScrollY
-            buildHomeScreen()
-        }, 350L)
-    }
-
-    private fun startStatusPolling() {
-        statusHandler.removeCallbacks(statusPollRunnable)
-
-        if (screen == Screen.TABLE || screen == Screen.HOME) {
-            statusHandler.post(statusPollRunnable)
-        }
-    }
-
-    private fun stopStatusPolling() {
-        statusHandler.removeCallbacks(statusPollRunnable)
-    }
-
-    private fun stopHomeTimer() {
-        homeTimerHandler.removeCallbacks(homeTimerRunnable)
-        homeTimerViews.clear()
-    }
-
-    private fun sendCommandToTable(tableNumber: Int, command: String) {
-        // Batalkan secara logis request STATUS lama agar response yang terlambat
-        // tidak mengembalikan UI ke kondisi sebelum perintah terbaru.
-        val commandGeneration = invalidateStatusRequests(tableNumber)
-        val host = getTableIp(tableNumber)
-        val tableLabel = String.format(Locale.US, "%02d", tableNumber)
-
-        if (host.isBlank()) {
-            tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
-            runOnUiThread {
-                when (screen) {
-                    Screen.HOME -> buildHomeScreen()
-                    Screen.TABLE -> buildTableScreen()
-                    else -> Unit
-                }
-            }
-            showToast("IP TV Meja $tableLabel belum diatur")
-            return
-        }
-
-        executor.execute {
-            synchronized(tableCommandLocks[tableNumber.coerceIn(0, tableCommandLocks.lastIndex)]) {
-                try {
-                Socket(host, 8787).use { socket ->
+                Socket(table.tvIp, 8787).use { socket ->
                     socket.soTimeout = 2500
                     PrintWriter(socket.getOutputStream(), true).use { writer ->
                         writer.println(command)
                         writer.flush()
                     }
                 }
-
-                // Jangan langsung menganggap TV benar-benar terhubung hanya karena
-                // socket berhasil menerima perintah. Konfirmasi koneksi dilakukan
-                // melalui STATUS setelah command selesai dikirim. Ini mencegah titik
-                // hijau muncul ketika TV menerima koneksi tetapi server belum siap
-                // memberikan status yang valid.
-                runOnUiThread {
-                    if (getStatusRequestGeneration(tableNumber) == commandGeneration) {
-                        when (screen) {
-                            Screen.HOME -> buildHomeScreen()
-                            Screen.TABLE -> buildTableScreen()
-                            else -> Unit
-                        }
-                    }
-                }
-
-                // Setelah perintah dikirim, baca kembali STATUS TV agar
-                // tampilan HP segera mengikuti kondisi TV yang sebenarnya.
-                Thread.sleep(250L)
-                if (getStatusRequestGeneration(tableNumber) == commandGeneration) {
-                    syncTableStatus(tableNumber, rebuildWhenChanged = true)
-                }
             } catch (_: Exception) {
                 runOnUiThread {
-                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
-                    when (screen) {
-                        Screen.HOME -> buildHomeScreen()
-                        Screen.TABLE -> buildTableScreen()
-                        else -> Unit
-                    }
-                    showToast("Gagal terhubung ke TV meja $tableLabel")
-                }
-            }
-            }
-        }
-    }
-
-    private fun syncTableStatus(
-        tableNumber: Int,
-        rebuildWhenChanged: Boolean = false
-    ) {
-        // Setiap STATUS request mendapat generation baru. Dengan begitu dua
-        // polling yang berjalan bersamaan tidak boleh saling menimpa hasil.
-        // Hanya response dari request STATUS terbaru yang boleh memperbarui
-        // status sesi dan indikator koneksi TV.
-        val requestGeneration = invalidateStatusRequests(tableNumber)
-        val host = getTableIp(tableNumber)
-
-        if (host.isBlank()) {
-            tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
-            if (screen == Screen.HOME) {
-                scheduleHomeRefresh()
-            }
-            return
-        }
-
-        executor.execute {
-            try {
-                Socket(host, 8787).use { socket ->
-                    socket.soTimeout = 2500
-
-                    PrintWriter(socket.getOutputStream(), true).use { writer ->
-                        writer.println("STATUS")
-                        writer.flush()
-
-                        val response =
-                            socket.getInputStream()
-                                .bufferedReader()
-                                .readLine()
-                                ?.trim()
-                                .orEmpty()
-
-                        runOnUiThread {
-                            // Abaikan response lama jika ada perintah baru yang
-                            // sudah dikirim setelah request STATUS ini dimulai.
-                            if (getStatusRequestGeneration(tableNumber) != requestGeneration) {
-                                return@runOnUiThread
-                            }
-
-                            val connected = isValidTvStatusResponse(response)
-                            tvConnectionStatus[tableNumber] =
-                                if (connected) {
-                                    TvConnectionState.CONNECTED
-                                } else {
-                                    TvConnectionState.DISCONNECTED
-                                }
-                            if (!connected) {
-                                if (rebuildWhenChanged && screen == Screen.HOME) {
-                                    scheduleHomeRefresh()
-                                }
-                                return@runOnUiThread
-                            }
-                            applyTvStatus(
-                                tableNumber = tableNumber,
-                                response = response,
-                                rebuildWhenChanged = rebuildWhenChanged
-                            )
-                            if (rebuildWhenChanged && screen == Screen.HOME) {
-                                scheduleHomeRefresh()
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                runOnUiThread {
-                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
-                    if (rebuildWhenChanged && screen == Screen.HOME) {
-                        scheduleHomeRefresh()
-                    }
+                    Toast.makeText(
+                        this,
+                        "TV Meja ${String.format("%02d", table.number)} tidak dapat dihubungi",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }
     }
 
-    private fun invalidateStatusRequests(tableNumber: Int): Long {
-        val next = getStatusRequestGeneration(tableNumber) + 1L
-        statusRequestGeneration[tableNumber] = next
-        return next
-    }
+    // -------------------------------------------------------------------------
+    // SETTINGS
+    // -------------------------------------------------------------------------
 
-    private fun getStatusRequestGeneration(tableNumber: Int): Long =
-        statusRequestGeneration[tableNumber] ?: 0L
+    private fun showSettingsDialog() {
+        val items = arrayOf(
+            "Harga PS",
+            "Pengaturan Meja",
+            "Kelola F&B"
+        )
 
-    private fun isValidTvStatusResponse(response: String): Boolean {
-        val parts = response.split("|")
-        if (parts.size != 3) return false
-        if (!parts[0].equals("STATUS", ignoreCase = true)) return false
-
-        val status = parts[1].uppercase(Locale.US)
-        if (status !in setOf("ACTIVE", "PAUSED", "IDLE")) return false
-
-        return parts[2].toLongOrNull() != null
-    }
-
-    private fun applyTvStatus(
-        tableNumber: Int,
-        response: String,
-        rebuildWhenChanged: Boolean
-    ) {
-        val parts = response.split("|")
-        if (parts.size < 3 || parts[0].uppercase(Locale.US) != "STATUS") {
-            return
-        }
-
-        val status = parts[1].uppercase(Locale.US)
-        val value = parts[2].toLongOrNull() ?: 0L
-
-        val activeKey = tableKey(tableNumber, "active")
-        val pausedKey = tableKey(tableNumber, "paused")
-        val endKey = tableKey(tableNumber, "session_end_time")
-        val pausedRemainingKey = tableKey(tableNumber, "paused_remaining")
-
-        val oldActive =
-            preferences.getBoolean(activeKey, false)
-        val oldPaused =
-            preferences.getBoolean(pausedKey, false)
-        val oldEnd =
-            preferences.getLong(endKey, 0L)
-        val oldPausedRemaining =
-            preferences.getLong(pausedRemainingKey, 0L)
-
-        var changed = false
-
-        when (status) {
-            "ACTIVE" -> {
-                if (value <= System.currentTimeMillis()) {
-                    changed =
-                        oldActive ||
-                            oldPaused ||
-                            oldEnd != 0L ||
-                            oldPausedRemaining != 0L
-
-                    preferences.edit()
-                        .putBoolean(activeKey, false)
-                        .putBoolean(pausedKey, false)
-                        .remove(endKey)
-                        .remove(pausedRemainingKey)
-                        .apply()
-                } else {
-                    changed =
-                        !oldActive ||
-                            oldPaused ||
-                            oldEnd != value ||
-                            oldPausedRemaining != 0L
-
-                    preferences.edit()
-                        .putBoolean(activeKey, true)
-                        .putBoolean(pausedKey, false)
-                        .putLong(endKey, value)
-                        .putLong(pausedRemainingKey, 0L)
-                        .apply()
+        AlertDialog.Builder(this)
+            .setTitle("Pengaturan")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> priceSettings()
+                    1 -> tableSettings()
+                    2 -> fnbSettings()
                 }
             }
+            .show()
+    }
 
-            "PAUSED" -> {
-                if (value > 0L) {
-                    changed =
-                        !oldActive ||
-                            !oldPaused ||
-                            oldEnd != 0L ||
-                            oldPausedRemaining != value
+    private fun priceSettings() {
+        val types = arrayOf("PS3", "PS4", "PS5")
+        val values = types.map { prefs.getLong("price_$it", priceFor(it)) }.toLongArray()
 
-                    preferences.edit()
-                        .putBoolean(activeKey, true)
-                        .putBoolean(pausedKey, true)
-                        .putLong(endKey, 0L)
-                        .putLong(pausedRemainingKey, value)
-                        .apply()
-                }
-            }
-
-            "IDLE" -> {
-                changed =
-                    oldActive ||
-                        oldPaused ||
-                        oldEnd != 0L ||
-                        oldPausedRemaining != 0L
-
-                preferences.edit()
-                    .putBoolean(activeKey, false)
-                    .putBoolean(pausedKey, false)
-                    .remove(endKey)
-                    .remove(pausedRemainingKey)
-                    .apply()
-            }
-
-            else -> return
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
         }
 
-        if (rebuildWhenChanged && changed) {
-            when {
-                screen == Screen.TABLE && selectedTable == tableNumber -> {
-                    restoreTableSession(tableNumber)
-                    buildTableScreen()
-                }
+        val inputs = mutableListOf<EditText>()
 
-                screen == Screen.HOME -> scheduleHomeRefresh()
+        types.forEachIndexed { index, type ->
+            val input = EditText(this).apply {
+                hint = "$type / jam"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setSingleLine(true)
+                setText(values[index].toString())
             }
+            inputs.add(input)
+            box.addView(input, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+            ))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Harga PS")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("SIMPAN") { _, _ ->
+                types.forEachIndexed { index, type ->
+                    val price = parseNominal(inputs[index].text.toString())
+                    if (price > 0) prefs.edit().putLong("price_$type", price).apply()
+                }
+                Toast.makeText(this, "Harga disimpan", Toast.LENGTH_SHORT).show()
+                showHome()
+            }
+            .show()
+    }
+
+    private fun tableSettings() {
+        val labels = tables.map {
+            "Meja ${String.format("%02d", it.number)} • ${it.psType}"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Pilih meja")
+            .setItems(labels) { _, which ->
+                tableConfigDialog(tables[which])
+            }
+            .show()
+    }
+
+    private fun tableConfigDialog(table: TableState) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
+        }
+
+        val ps = Spinner(this)
+        ps.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            arrayOf("PS3", "PS4", "PS5")
+        )
+        ps.setSelection(arrayOf("PS3", "PS4", "PS5").indexOf(table.psType).coerceAtLeast(0))
+
+        box.addView(ps, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(54)
+        ))
+
+        val ip = EditText(this).apply {
+            hint = "IP Android TV"
+            setSingleLine(true)
+            setText(table.tvIp)
+        }
+        box.addView(ip, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(56)
+        ))
+
+        AlertDialog.Builder(this)
+            .setTitle("Meja ${String.format("%02d", table.number)}")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("SIMPAN") { _, _ ->
+                table.psType = ps.selectedItem.toString()
+                table.tvIp = ip.text.toString().trim()
+                saveTables()
+                showHome()
+            }
+            .show()
+    }
+
+    private fun fnbSettings() {
+        val message = "Menu F&B saat ini:\n\n" +
+            fnbProducts.joinToString("\n") {
+                "• ${it.name} — ${formatRupiah(it.price)}"
+            }
+
+        AlertDialog.Builder(this)
+            .setTitle("Kelola F&B")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    // -------------------------------------------------------------------------
+    // UI HELPERS
+    // -------------------------------------------------------------------------
+
+    private fun sectionTitle(text: String) {
+        content.addView(TextView(this).apply {
+            this.text = text
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(C.TEXT)
+            setPadding(dp(2), dp(2), dp(2), dp(9))
+        }, wrap())
+    }
+
+    private fun summaryCard(label: String, value: String, color: Int): LinearLayout {
+        return card(C.WHITE, 18).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 9f
+                setTextColor(C.LIGHT_MUTED)
+            })
+
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(color)
+                setPadding(0, dp(4), 0, 0)
+            })
         }
     }
 
-    private fun getTablePsType(tableNumber: Int): String =
-        preferences.getString(
-            tableKey(tableNumber, "ps_type"),
-            "PS3"
-        ) ?: "PS3"
+    private fun fnbMini(icon: String, title: String, subtitle: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(5), dp(4), dp(5))
+            background = rounded(C.GRAY_BG, dp(15))
 
-    private fun getTvConnectionState(tableNumber: Int): TvConnectionState =
-        tvConnectionStatus[tableNumber] ?: TvConnectionState.UNCHECKED
+            addView(TextView(this@MainActivity).apply {
+                text = icon
+                textSize = 17f
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(25)
+            ))
 
-    private fun isTvConnected(tableNumber: Int): Boolean =
-        getTvConnectionState(tableNumber) == TvConnectionState.CONNECTED &&
-            getTableIp(tableNumber).isNotBlank()
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                textSize = 9f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(C.TEXT)
+            }, wrap())
 
-    private fun getTableIp(tableNumber: Int): String =
-        preferences.getString(
-            tableKey(tableNumber, "tv_ip"),
-            ""
-        ) ?: ""
-
-    private fun getPsName(type: String): String =
-        preferences.getString(
-            psKey(type, "name"),
-            type
-        ) ?: type
-
-    private fun getPsDuration(type: String): Long =
-        preferences.getInt(
-            psKey(type, "duration"),
-            60
-        ).toLong().coerceAtLeast(1L)
-
-    private fun getPsPrice(type: String): Long {
-        val default = when (type) {
-            "PS3" -> 4_000L
-            "PS4" -> 5_000L
-            else -> 8_000L
+            addView(TextView(this@MainActivity).apply {
+                text = subtitle
+                textSize = 7f
+                gravity = Gravity.CENTER
+                setTextColor(C.LIGHT_MUTED)
+            }, wrap())
         }
-        return preferences.getLong(
-            psKey(type, "price"),
-            default
-        ).coerceAtLeast(0L)
     }
 
-    private fun psKey(type: String, field: String): String =
-        "ps_${type.lowercase(Locale.US)}_$field"
+    private fun infoRow(parent: LinearLayout, label: String, value: String) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
 
-    private fun tableKey(tableNumber: Int, field: String): String =
-        "table_${tableNumber}_$field"
+        row.addView(TextView(this@MainActivity).apply {
+            text = label
+            textSize = 10f
+            setTextColor(C.MUTED)
+        }, LinearLayout.LayoutParams(0, dp(38), 1f))
 
-    private fun parseNominal(value: String): Long =
-        value.replace(".", "")
+        row.addView(TextView(this@MainActivity).apply {
+            text = value
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+            setTextColor(C.TEXT)
+        }, LinearLayout.LayoutParams(dp(150), dp(38)))
+
+        parent.addView(row)
+    }
+
+    private fun card(color: Int, radius: Int): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(color, dp(radius))
+            elevation = dp(1).toFloat()
+        }
+    }
+
+    private fun smallButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 9f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(C.GREEN)
+            background = rounded(C.GREEN_CHIP, dp(12))
+            minHeight = dp(40)
+            minimumHeight = dp(40)
+            setPadding(dp(7), 0, dp(7), 0)
+        }
+    }
+
+    private fun softButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 12f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(C.TEXT)
+            background = rounded(C.GRAY_BG, dp(15))
+            minHeight = dp(52)
+            minimumHeight = dp(52)
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+    }
+
+    private fun primaryButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 12f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = rounded(C.GREEN, dp(15))
+            minHeight = dp(52)
+            minimumHeight = dp(52)
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+    }
+
+    private fun dangerButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 12f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(C.RED)
+            background = rounded(C.RED_BG, dp(15))
+            minHeight = dp(52)
+            minimumHeight = dp(52)
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+    }
+
+    private fun iconButton(icon: String, size: Int): Button {
+        return Button(this).apply {
+            text = icon
+            textSize = 18f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(C.TEXT)
+            background = rounded(C.WHITE, dp(15))
+            minHeight = dp(size)
+            minimumHeight = dp(size)
+            setPadding(0, 0, 0, 0)
+        }
+    }
+
+    private fun rounded(color: Int, radius: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
+            setStroke(dp(1), C.BORDER)
+        }
+    }
+
+    private fun wrap(): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    private fun fullButton(): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(54)
+        ).apply {
+            topMargin = dp(5)
+            bottomMargin = dp(5)
+        }
+    }
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    // -------------------------------------------------------------------------
+    // DATA
+    // -------------------------------------------------------------------------
+
+    private fun priceFor(ps: String): Long {
+        val default = when (ps) {
+            "PS3" -> 4000L
+            "PS4" -> 5000L
+            else -> 8000L
+        }
+        return prefs.getLong("price_$ps", default)
+    }
+
+    private fun todayFnb(): Long {
+        val today = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+        return orders.filter {
+            SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(it.createdAt)) == today
+        }.sumOf { it.total }
+    }
+
+    private fun parseNominal(value: String): Long {
+        return value
+            .replace(".", "")
             .replace(",", "")
-            .replace("Rp", "", ignoreCase = true)
+            .replace("Rp", "", true)
             .trim()
             .toLongOrNull()
             ?.coerceAtLeast(0L)
             ?: 0L
-
-    private fun formatTime(millis: Long): String {
-        val totalSeconds = millis.coerceAtLeast(0L) / 1000L
-        val hours = totalSeconds / 3600L
-        val minutes = (totalSeconds % 3600L) / 60L
-        val seconds = totalSeconds % 60L
-        return String.format(
-            Locale.US,
-            "%02d:%02d:%02d",
-            hours,
-            minutes,
-            seconds
-        )
     }
 
     private fun formatRupiah(value: Long): String {
-        return String.format(
-            Locale.US,
-            "Rp %,d",
-            value
-        ).replace(",", ".")
+        return String.format(Locale.US, "Rp %,d", value).replace(",", ".")
     }
 
-    private fun createInput(hintText: String): EditText {
-        return EditText(this).apply {
-            hint = hintText
-            textSize = 15f
-            setSingleLine(true)
-            setTextColor(Color.rgb(45, 52, 64))
-            setHintTextColor(Color.rgb(125, 132, 143))
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            setBackgroundColor(Color.WHITE)
-            minHeight = dp(52)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(58)
-            ).apply {
-                topMargin = dp(7)
-                bottomMargin = dp(7)
+    private fun formatTime(millis: Long): String {
+        val total = max(0L, millis) / 1000L
+        val h = total / 3600L
+        val m = (total % 3600L) / 60L
+        val s = total % 60L
+        return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
+    }
+
+    private fun saveTables() {
+        val e = prefs.edit()
+        tables.forEach { table ->
+            val key = "table_${table.number}_"
+            e.putString(key + "ps", table.psType)
+            e.putBoolean(key + "active", table.active)
+            e.putBoolean(key + "paused", table.paused)
+            e.putLong(key + "end", table.endAt)
+            e.putLong(key + "pausedRemaining", table.pausedRemaining)
+            e.putString(key + "ip", table.tvIp)
+            e.putLong(key + "bill", table.bill)
+        }
+        e.apply()
+    }
+
+    private fun loadTables() {
+        tables.forEach { table ->
+            val key = "table_${table.number}_"
+            table.psType = prefs.getString(key + "ps", "PS5") ?: "PS5"
+            table.active = prefs.getBoolean(key + "active", false)
+            table.paused = prefs.getBoolean(key + "paused", false)
+            table.endAt = prefs.getLong(key + "end", 0L)
+            table.pausedRemaining = prefs.getLong(key + "pausedRemaining", 0L)
+            table.tvIp = prefs.getString(key + "ip", "") ?: ""
+            table.bill = prefs.getLong(key + "bill", 0L)
+
+            if (table.active && !table.paused && table.endAt <= System.currentTimeMillis()) {
+                table.active = false
+                table.endAt = 0L
             }
         }
     }
 
-    private fun createNumberInput(hintText: String): EditText =
-        createInput(hintText).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-        }
+    // -------------------------------------------------------------------------
+    // COLORS
+    // -------------------------------------------------------------------------
 
-    private fun attachNominalFormatter(input: EditText) {
-        var formatting = false
+    private object C {
+        val BG = Color.rgb(246, 248, 251)
+        val WHITE = Color.WHITE
+        val TEXT = Color.rgb(40, 48, 61)
+        val MUTED = Color.rgb(103, 114, 130)
+        val LIGHT_MUTED = Color.rgb(145, 154, 167)
+        val BORDER = Color.rgb(232, 237, 242)
 
-        input.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(
-                s: CharSequence?,
-                start: Int,
-                count: Int,
-                after: Int
-            ) = Unit
+        val GRAY_BG = Color.rgb(239, 243, 247)
+        val GRAY_CHIP = Color.rgb(242, 245, 248)
 
-            override fun onTextChanged(
-                s: CharSequence?,
-                start: Int,
-                before: Int,
-                count: Int
-            ) = Unit
+        val GREEN = Color.rgb(67, 157, 117)
+        val GREEN_CHIP = Color.rgb(233, 246, 239)
+        val ACTIVE_BG = Color.rgb(248, 252, 249)
 
-            override fun afterTextChanged(s: Editable?) {
-                if (formatting) return
+        val AMBER = Color.rgb(178, 140, 79)
+        val PAUSE_BG = Color.rgb(252, 250, 245)
+        val PAUSE_CHIP = Color.rgb(248, 242, 230)
 
-                val raw = s?.toString().orEmpty()
-                    .replace(".", "")
-                    .replace(",", "")
-                    .filter { it.isDigit() }
-
-                if (raw.isEmpty()) return
-
-                val number = raw.toLongOrNull() ?: return
-                val formatted = formatRupiah(number)
-
-                if (formatted == s.toString()) return
-
-                formatting = true
-                input.setText(formatted)
-                input.setSelection(formatted.length)
-                formatting = false
-            }
-        })
+        val RED = Color.rgb(178, 82, 94)
+        val RED_BG = Color.rgb(252, 238, 240)
     }
-
-    private fun createSmallDashboardButton(textValue: String): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 11f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(48, 57, 72))
-            background = roundedBackground(Color.rgb(239, 243, 247), dp(14))
-            isAllCaps = false
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setPadding(dp(10), 0, dp(10), 0)
-            includeFontPadding = true
-            elevation = dp(1).toFloat()
-        }
-    }
-
-    private fun createSoftButton(textValue: String): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(48, 57, 72))
-            background = roundedBackground(Color.rgb(235, 240, 245), dp(15))
-            isAllCaps = false
-            minHeight = dp(52)
-            minimumHeight = dp(52)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            includeFontPadding = true
-            elevation = dp(1).toFloat()
-        }
-    }
-
-    private fun createPrimaryButton(textValue: String): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = roundedBackground(Color.rgb(37, 150, 108), dp(15))
-            isAllCaps = false
-            minHeight = dp(58)
-            minimumHeight = dp(58)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            elevation = dp(2).toFloat()
-        }
-    }
-
-    private fun createDangerButton(textValue: String): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(180, 72, 82))
-            background = roundedBackground(Color.rgb(252, 235, 237), dp(15))
-            isAllCaps = false
-            minHeight = dp(58)
-            minimumHeight = dp(58)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            elevation = dp(1).toFloat()
-        }
-    }
-
-    private fun addSectionTitle(root: LinearLayout, textValue: String) {
-        root.addView(TextView(this).apply {
-            text = textValue
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(50, 58, 70))
-            setPadding(dp(2), dp(18), dp(2), dp(8))
-        }, matchParentWrapContent())
-    }
-
-    private fun matchParentWrapContent(): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        )
-
-    private fun matchParentButton(): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(58)
-        ).apply {
-            topMargin = dp(8)
-        }
-
-    private fun showToast(message: String) {
-        runOnUiThread {
-            android.widget.Toast.makeText(
-                this,
-                message,
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
-
-    override fun onDestroy() {
-        sessionTimer?.cancel()
-        sessionTimer = null
-        stopStatusPolling()
-        executor.shutdownNow()
-        super.onDestroy()
-    }
-
-    companion object {
-        private const val TABLE_COUNT = 10
-        private const val REQUEST_QRIS_IMAGE = 4101
-        private const val REQUEST_PROFILE_IMAGE = 4102
-        private val PS_TYPES = arrayOf("PS3", "PS4", "PS5")
-        const val CIMPLI_PS_LOGO_BASE64 = "UklGRqwPAABXRUJQVlA4IKAPAAAQNQCdASqAAIAAPpEylEgloqIhM/0rqLASCWwA0bom335dZneDN2VARdP8+edD/D+orzAOcn+4vqH/bf1jv9j+zPuX/tvqAf1X/T9Yt+63sAeW/+63wff2//q+mj6gH//4Lllfej44vhPuX65uLvru1IO1/E3vN+SOoF4e3p+1HoEe1X1Pv5dUfwh7AH6q8TRQH/Snqy/4PkP+q/YN/nn9465n7ge0OtkHE/7cBYO18MxKDrnWRKqyQlYflAqhfHafj83iAM2pPIXdzcdHt8eebVRzTHZjJ/Av/VItY5fKjfJsGNS/ycdBUa2dhcdmRpbS2Pe7ROW31MODB+C+pJ9NJICDDCSDC0qiaNEUQM7m+W1AmVghszWQVgZKrhZLTkI4beg4le3GYzIJdy9e92L0/8rfYfvveG1Fmsj+MfOFnFhrDx9t5dsBz4lN+x8kxhefqQyU7w+cUUdSGAeIfiYmBU0Y9hMhiZ139lBFgPhsmekgX1GrduzuNTGvG/Anuq2EBE15P9ySM4HFTicq0lgWNxvn5TrdoydSt6ftOvM3jqpVTlWm6CT8BZ7GxTu7zGAAAP78uCe0U0nPt8hWev42HNguf7/Q0LgFku7PzaWZByua2xiG9jtH33rX+sBBSK1WTBCzXI+S/q0PnW3+qOnPMzOFu5p95ZIcouoX/R/3L0PF/hgi+ufHiwqOmuY94ma++8/WKobWSIypw4Bp4QOcO4OVlBYD0gZJjmGzoV5KRZno1PGntAgW2XvYO5Vq6Psjnn1Rnv8rw8DwCU97Sn0ci8fmtVYIwAl5p/WpBaRg1V3uQ3czdESeGZVL7jqP1/brl8F4u6t7CniZJTEsonEg4FWfTi2ar+jRiemeIxtdFRN2vlBDmsDJjqrdypzXN96Y+G02lioyX93h9Nv8YXxt59lOZNg4A1sYsBYBjwVEhoflxKSkscvWr8Yt94BHeczWczF5ahVl8XdhqS3Ld//b03lVl0/HOwcTSLd8Kle6C6h7NJOL2kk9iVn/9ONUTjKfldE7wfBnNa5uTSRULQ9J6b4GAPYsDOi60d0IQr/328xlt76lUN+/rYfVx4Oo0PuaiW2OrrEwc1IaIEvpYNgggbe8XcTdwNBu6MhqLe/jbYKXdBc5RTLsbBCS/j4KcOOL7eJ/YeW0Lex1pkmg3cswGwRS577xPgIhjHeFXyPgFmrgWSs05PzudoD1gtQXg4A7gP81nXt/qRwjsfujN1QPC2seqseq4wLpNVm4noWwOg1EKwKFZ1EJ0JMj0+csrNW7VrdQlAwdoqstLf7pgvK43IwQVpOHd2gfEx4Mtgmfjey447qLkrRRes5fZFc7anKqpI5FB2fQfLbxeP/d2jHx8E8Wg5aWJ1voL19MHRjIyRWGWUj0k2ddvOUhJV/4JxYCYPobZ6mVF7N2tBNIIWP26F9Q2aNvsOt43tdl7YngbEq3+6mKkL3CL4hOVR0kCg0gHJQuwzQ1MjrlgJrYWJqEz+VVivyd6XvuaSl5/5ur9bMwZH7Y9ZR5B/krI3+FYThk28ncT1KYaqsB9K+YUBB8b0Xe/T5fBaCLbrbfArmciPcVLj47esBfUwqwOo+Q2/ywKVemUTD4ExhhfK/i2HoerqNLtdt2pal2SBJzP4xehMZKfWUmwwjdkNZgYES7dIGSqKH8OtaZiO6kUuXezHqvjt4iaZSawund/IVSXrorG37pzYA1Um0H/oWPKTTFFtN5tZAgK614fFVEXfbI9++S2LKaznVx2dORl8xMLW3odP6xOmvp+N3dLPfk2YTRWJzn9NA6oWc5H7Ndz6fWPx2VPOZDJtxbviV0BPp2L3mUYzJ6hKPllrxhGlRSgrwOiXajbmM2+NdShHtkgt02XfqrIfastTyO8Xc7gpo7XmWQ3Y726lIOgJBSuY9FW48HfpnYW1XpDjg36Q+jTqh45AfJj3LoGABapwE/w61nfz7LtW6ayWsZ7BxGXobhPKi7VTvpIBjvJkmIvMMuMir51ePdPwU0WmgW/9TuTBcK9QohwUP9M4pyvpwu3BSLNoJCRqmc97rfmzaj5l61bw5IZsUIE2XUfwj9cEBAYa4xM5VUXYOefQBV2ZwH2M222o7gLH2vZHx1he3fA1kvZ9lJ3gZ5+s5ls5HW+FjcWfW3QNVvkBx7cJtPY70kQrTCsC/e0d5Lwh1H7N+HzlRHI5LhDP0Mrab0WR6zBBvYYJxdWqj/FXy3vFw21Kp4HhwGooW/MZUkbSOogiOe9tWmzYFknJuKX/NVlM7wA/+WrDtf7jelGNWTs7pz1Ptof0ki5jJUHrtNSO/z2MsnxxweV/J2iT8Iif3ucmOAHFDOPXGxL+v1qVT5A9MnuPACdBe5SnmVf2xqHjMZ3Qs4nUMT2d/gqukNL+H8tas/7HctqTpFB6DPlhwRc5lJ1TL0HUH4mV2eA8V4pVWf6TSi6B26UVN2NEcZpLLaKwAg4Q0TTRgsWQp+IbaEoyuxzTcTqzUr3gEjZQ/X8o3tvyNeQ34c3cqG0YYu9A0iKpRFmqU20/WMNiMKQW1ehpXZnptJG6rUN4wkXC6iVR+1FS9mYu+dEnw3SM7n7P3ZXtGH7NPFyZHPd6aqbl30jHQvu7ETGnbvhjlXgY/UZeLxJy9phTMeAdIarGpwK2pFPeUKKRmeJpjoX9T38aqHk9Sg/+UwIAiT9SBDbrWyzgiAl37hkse5Ll4AdK9LZvohMnhs5lugP58ctbyn8gixGwu0uM8lkDBjNWBWKVnMSWpnnp9jtY11+uic8xcATjAzxomqJogT+BsfCHYdtJuvckkBEZw5FnFCsV6yrN+v5EpxAWEwFJI29jy4SnHjsysr5yzcn1FifASkHE43/ejCIzjRwZo5uXKkcOZa9Y/Qwm11/NxmsUz3sr9E67jj3YCusA123OiAmvNccuTftaQZ6ek+3dlMblhRWxZ3oZYqmmPEPNfbVFj0CpzTXIkOv8TLYIG4zLexIAHuMeOnwzodI26hX3QtXMSKahk4MX52IjgA4ATiwtNJWeKex0RqPpqEEOxMYQboyy619iDtOGeVUQEJscws+VcCitmRNskjTqQde3sb+G/Cj9bH0HfxMesZKtityHfkweXwjsSg3U+1ENNdvYB5rbrD7+krSDwS4TIsFdlFy2B3V7lN7ktqgMcQ1pLRLMrTt66xDtZ0yvh3972LsOLG4nl9bwlWrLwxjui6nlQ48BQyvUBxgnVDtar61JN8VZwmidwCMkGaeNVEY0JGMvCTTRRzup9gZ5XBItKAgkR3n4jGxzbLVruhjVp3uzlobH3AWEAW0Vb5hynIq4kpxOhlCk9JTAgXpMH9YgdW/Gw5xdc/5AlSFEAEo0GLwFvCFKFkwOaPM29bEs1MkVt8hK3+lphvwWGbjkn/MNVfZKY67A/ErX2CWvhvDEPReZ4D/beRGoMpmoaRBusi736wa9oDpz0Ef7QzI+bEPOOaxYv5Ry0F6DHkxPxkfDTXoNTVck8HDaS+7YUidZl5spe2ArdBOf7HTJVmQGS4ff956ZG9nWiB9GYl4h4LIxZvtjFaQ7nXKADzhYHXWNj3J1V1pvJuJJ7OoPDIravE0Dmc3socLyGk88uPHxK/lMC1qlWk1nX6A96AxWZfXAR8mVWfC1CPNKDto4OfsSi/q8KlssXO2JQ6gvZKV6+Xjt1wWYwT7WPDX87M2XbkbT1CuGhbkByqkNXB7O585SRbUipBcDL4WH5Hlp0xYcOPAi3WV3/IZ5mcoXsjZSHhrkkbtucSKLJjSvNZjTl4mZF1i8Z2mx6wCb2PxPOwbLyAhtdcQ3FCBHiGVZMzoeMgAB3dvw+Fs3MiwEd/YR/d9p05gdTbb6MFuXLV3plH6J6bLKEX6QXrYuWctYVudsUd4/RUHK4nAoX1roqlukWtHUSbRA91d7sAop1FMcoPj3rUl9/uCOuFFJJO5WRS/IUFKvfgm461TJgfWSVj5oXRP+MW24ORMfgUZPRbJOmmw8hrtJc5d9mWRj+0AAfDtd6SyTuP/3IYMbgjA3l8G0aMMXUymKWdpnpJhKZWPECFlYKqBNqqYsb5uyOKrKfIKJZr/BVotG5wSRN+5yPbO0QNzcS/FpwkcqRqp5MGV+Z54JQ/Hk4Ykj867Ddpc0RlAop/bB3KY96ay5xvRTClMfYZzoQICim3OPNdIrzZNn2dFgG2eVBnY2Igi00tWReY3t1PSCDq53gvFoMxv29H4b38xco/bbv3qUEY5MEBi6lacigE21E+/V9weIcFO9HH1Q+4NfLvU9ac6sDbQUNJQ4AEX9SpXRwsVhyCmUd9OUTevQ6ut6lw+2BCfQIyNzhl8gKKHww8Oi9/CJGo6ifNCFOZHIDv910ula6RzPqZZQAZyYKcWT9zrRPjVAvRO2w9pVjzqgXgIoWUYXbIkONPfgbM6D54IVwg7IsPP24VGmutN3hmNPpMH/mBQc8S7TKE5ElLTzIc8m/TbjTwP4RrTSoIkmQLErFWJFqqZRR8TWc47I3AM5FEOFeZESLnDFg0V9P2LDkuWBqRWlFst6NwVQFt8i4t2kmX8ZudgTeXweGNU/rGQpyvSxil6tEkqf3nfdc/4hcK5SuogI1BxsK0JhHCOcp1zjz3yQK4fdxrtuRNzJ62c4NmDtiyGj7Vbz9O/7u5Xt1X/UHC0FbU3m0tzNl6DfSMZUzUsCIaysfghOHJYX867Ez5gjhclfzc/WK1PROIrBP6POlbVmeoHQIhQhWH2klWKG2FaT0fL7PtpLt8PQs6gDBMTo6iBbJEdoHsKHdxREzF1BgoejXTW6iAkelIMLbJLh8f0U7LS8d52Nk1OI/qJfWWYIL2pAHOJnMd6NiVyu/W4rnzWHzT7jssXIXiNz0lzB9wA9U6uZiURJvejVjHQCnJQQIr/Xy2n/4Eg0yct4mq5milNRPvxH7mI4YexY7M8M9TvZ21NGLsDQD9sWHgmLv80cZbb1Vjrqe2h+9PJ0rHifm6jwc1UJbxhfyjSNUVD56AeBf39JEij2Ebn1JpCSlDmL7uLJg6HDjKJUc5ZMIBbrTkBBLECNCiXtfIOn+XZ3ca/9ObqXdTxRrWJR3684/VbQnJNihJGhbN8MPYqfKQO8/ifSm8aBBEE2Fo4kgce1SObMU2bZzUxbstsxiLFuNldSuqZLEreumu9R7JUgkGYEUmiv3CqVS2SkHWhnpi3+ZDOHH6cHCLhdO9N3scEFpjcwAFIujUQMSi0UPJUGbAROF6bw8k37jkLblBWVUvgKPghDgxEU5u8VqPuMdoWifyiPs3AOrVpDEDY+pzPiX6C1i5Ph2ImC9Rxgf3u8jT0df9L2C5Regn69PFAAAA"
-    }
-
-
 }
