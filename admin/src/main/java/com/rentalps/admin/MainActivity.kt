@@ -245,6 +245,9 @@ class MainActivity : Activity() {
             "Kelola meja, sesi PlayStation & Android TV"
         )
 
+        val activeSessionCount = (1..TABLE_COUNT).count { isTableActive(it) }
+        val pausedSessionCount = (1..TABLE_COUNT).count { isTablePaused(it) }
+
         val summary = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -256,25 +259,34 @@ class MainActivity : Activity() {
                 Color.rgb(90, 98, 112)
             ),
             LinearLayout.LayoutParams(0, dp(92), 1f).apply {
-                rightMargin = dp(6)
+                rightMargin = dp(4)
             }
         )
 
         summary.addView(
             createSummaryCard(
-                "Aktif",
-                countActiveTables().toString(),
+                "Berjalan",
+                activeSessionCount.toString(),
                 Color.rgb(55, 125, 88)
             ),
             LinearLayout.LayoutParams(0, dp(92), 1f).apply {
-                leftMargin = dp(6)
+                leftMargin = dp(4)
+                rightMargin = dp(4)
+            }
+        )
+
+        summary.addView(
+            createSummaryCard(
+                "Pause",
+                pausedSessionCount.toString(),
+                Color.rgb(125, 105, 72)
+            ),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply {
+                leftMargin = dp(4)
             }
         )
 
         root.addView(summary, matchParentWrapContent())
-
-        val activeSessionCount = (1..TABLE_COUNT).count { isTableActive(it) }
-        val pausedSessionCount = (1..TABLE_COUNT).count { isTablePaused(it) }
 
         val emergencyRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
