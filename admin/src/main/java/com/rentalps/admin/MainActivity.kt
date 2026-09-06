@@ -656,10 +656,8 @@ class MainActivity : Activity() {
             .setTitle("Pause Semua Sesi?")
             .setMessage(
                 "Semua sesi aktif akan dijeda sementara. " +
-                    "Timer di HP dan TV akan berhenti.
-
-" +
-                    "$tableNames"
+                    "Timer di HP dan TV akan berhenti.\n\n" +
+                    tableNames
             )
             .setNegativeButton("BATAL", null)
             .setPositiveButton("PAUSE SEMUA") { _, _ ->
