@@ -341,7 +341,7 @@ class MainActivity : Activity() {
 
         addSectionTitle(root, "Pengaturan")
 
-        val psSettingsButton = createSoftButton("Pengaturan PS")
+        val psSettingsButton = createSoftButton("Harga & Durasi PS")
         psSettingsButton.setOnClickListener {
             screen = Screen.PS_SETTINGS
             buildPsSettingsScreen()
@@ -1394,7 +1394,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildPsSettingsScreen() {
-        buildBase("Pengaturan PS", "Atur nama, durasi dasar dan harga setiap jenis PS")
+        buildBase("Harga & Durasi PS", "Atur durasi dan harga dasar PS3, PS4, dan PS5")
 
         val spinner = Spinner(this)
         spinner.adapter = ArrayAdapter(
@@ -1405,18 +1405,15 @@ class MainActivity : Activity() {
 
         root.addView(spinner, matchParentWrapContent())
 
-        val nameInput = createInput("Nama")
         val durationInput = createNumberInput("Durasi dalam menit")
         val priceInput = createNumberInput("Harga dalam rupiah")
         attachNominalFormatter(priceInput)
 
-        root.addView(nameInput, matchParentWrapContent())
         root.addView(durationInput, matchParentWrapContent())
         root.addView(priceInput, matchParentWrapContent())
 
         fun load() {
             val type = PS_TYPES[spinner.selectedItemPosition]
-            nameInput.setText(getPsName(type))
             durationInput.setText(getPsDuration(type).toString())
             priceInput.setText(getPsPrice(type).toString())
         }
@@ -1445,7 +1442,6 @@ class MainActivity : Activity() {
             val price = parseNominal(priceInput.text.toString())
 
             preferences.edit()
-                .putString(psKey(type, "name"), nameInput.text.toString().trim().ifEmpty { type })
                 .putInt(psKey(type, "duration"), duration.toInt())
                 .putLong(psKey(type, "price"), price)
                 .apply()
