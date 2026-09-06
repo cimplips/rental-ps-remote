@@ -569,16 +569,120 @@ class MainActivity : Activity() {
     }
 
     private fun buildTransactionsScreen() {
-        buildBase("Transaksi", "Riwayat dan transaksi pelanggan")
+        buildBase("Transaksi", "Ringkasan pemasukan sesi PS")
 
-        val empty = TextView(this).apply {
-            text = "Transaksi\n\nRiwayat transaksi akan tampil di sini setelah modul transaksi diaktifkan."
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(95, 102, 114))
-            setPadding(dp(24), dp(60), dp(24), dp(60))
+        val today = getTodayIncome()
+        val activeCount = (1..TABLE_COUNT).count { isTableActive(it) }
+        val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
+
+        val summary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
         }
-        root.addView(empty, matchParentWrapContent())
+
+        summary.addView(
+            createSummaryCard("Hari ini", formatRupiah(today), Color.rgb(22, 131, 91)),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(5) }
+        )
+        summary.addView(
+            createSummaryCard("Sesi aktif", activeCount.toString(), Color.rgb(55, 125, 88)),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) }
+        )
+        summary.addView(
+            createSummaryCard("Pause", pausedCount.toString(), Color.rgb(194, 142, 55)),
+            LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5) }
+        )
+        root.addView(summary, matchParentWrapContent())
+
+        addSectionTitle(root, "Sesi yang sedang berjalan")
+
+        val activeTables = (1..TABLE_COUNT).filter { isTableActive(it) || isTablePaused(it) }
+        if (activeTables.isEmpty()) {
+            val emptyCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(20), dp(30), dp(20), dp(30))
+                background = roundedBackground(Color.WHITE, dp(18))
+                elevation = dp(1).toFloat()
+            }
+            emptyCard.addView(TextView(this@MainActivity).apply {
+                text = "Belum ada sesi berjalan"
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(55, 63, 75))
+            }, matchParentWrapContent())
+            emptyCard.addView(TextView(this@MainActivity).apply {
+                text = "Mulai sesi dari menu PS atau Beranda."
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(120, 128, 140))
+                setPadding(0, dp(5), 0, 0)
+            }, matchParentWrapContent())
+            root.addView(emptyCard, matchParentWrapContent())
+        } else {
+            activeTables.forEach { tableNumber ->
+                val active = isTableActive(tableNumber)
+                val paused = isTablePaused(tableNumber)
+                val remaining = getTableRemaining(tableNumber)
+
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(15), dp(12), dp(12), dp(12))
+                    background = roundedBackground(Color.WHITE, dp(18))
+                    elevation = dp(1).toFloat()
+                }
+
+                val info = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                info.addView(TextView(this@MainActivity).apply {
+                    text = String.format(Locale.US, "Meja %02d", tableNumber)
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.rgb(35, 42, 52))
+                }, matchParentWrapContent())
+                info.addView(TextView(this@MainActivity).apply {
+                    text = when {
+                        paused -> "PAUSE • ${formatTime(remaining)}"
+                        active -> "AKTIF • ${formatTime(remaining)}"
+                        else -> "SELESAI"
+                    }
+                    textSize = 11f
+                    setTextColor(
+                        when {
+                            paused -> Color.rgb(194, 142, 55)
+                            active -> Color.rgb(48, 155, 92)
+                            else -> Color.rgb(120, 128, 140)
+                        }
+                    )
+                    setPadding(0, dp(3), 0, 0)
+                }, matchParentWrapContent())
+                card.addView(info, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+                val open = createSoftButton("Buka")
+                open.minHeight = dp(40)
+                open.minimumHeight = dp(40)
+                open.setOnClickListener {
+                    selectedTable = tableNumber
+                    restoreTableSession(tableNumber)
+                    screen = Screen.TABLE
+                    buildTableScreen()
+                }
+                card.addView(open, LinearLayout.LayoutParams(dp(72), dp(42)))
+
+                root.addView(card, matchParentWrapContent().apply { bottomMargin = dp(8) })
+            }
+        }
+
+        addSectionTitle(root, "Catatan")
+        val note = TextView(this).apply {
+            text = "Pemasukan saat ini mengikuti sesi PS yang sudah selesai. Modul F&B akan memakai alur transaksi yang sama saat penyimpanan pesanan diaktifkan."
+            textSize = 11f
+            setTextColor(Color.rgb(115, 122, 134))
+            setPadding(dp(4), 0, dp(4), dp(16))
+        }
+        root.addView(note, matchParentWrapContent())
     }
 
     private fun loadCimpliPsLogo(): android.graphics.Bitmap? {
