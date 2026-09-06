@@ -255,46 +255,36 @@ class MainActivity : Activity() {
 
     private fun buildBase(titleText: String, subtitleText: String? = null) {
         val scroll = TouchScrollView(this).apply {
-            setBackgroundColor(Color.rgb(245, 247, 250))
+            setBackgroundColor(Color.rgb(246, 249, 247))
             isFillViewport = false
-            // Dashboard memakai scrollTo() untuk mempertahankan posisi. Smooth
-            // scrolling di sini justru dapat membuat posisi terlihat bergerak sendiri.
             isSmoothScrollingEnabled = false
-            isVerticalScrollBarEnabled = true
-            overScrollMode = View.OVER_SCROLL_ALWAYS
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             clipToPadding = false
-            setPadding(0, 0, 0, dp(24))
+            setPadding(0, 0, 0, dp(18))
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
             setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                if (screen == Screen.HOME && !restoringHomeScroll) {
-                    lastScrollY = scrollY
-                }
+                if (screen == Screen.HOME && !restoringHomeScroll) lastScrollY = scrollY
             }
         }
 
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(32))
+            setPadding(dp(18), dp(14), dp(18), dp(28))
         }
-
         scroll.addView(root)
-        if (screen == Screen.HOME) {
-            homeScrollView = scroll
-        }
+        if (screen == Screen.HOME) homeScrollView = scroll
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-
         if (screen != Screen.HOME) {
-            val back = Button(this).apply {
+            val back = TextView(this).apply {
                 text = "‹"
-                textSize = 28f
-                setTextColor(Color.rgb(55, 63, 75))
-                setBackgroundColor(Color.TRANSPARENT)
-                minWidth = dp(44)
-                minHeight = dp(48)
+                textSize = 36f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(30, 74, 56))
                 setOnClickListener {
                     sessionTimer?.cancel()
                     stopStatusPolling()
@@ -302,58 +292,41 @@ class MainActivity : Activity() {
                     buildHomeScreen()
                 }
             }
-            header.addView(back, LinearLayout.LayoutParams(dp(50), dp(52)))
+            header.addView(back, LinearLayout.LayoutParams(dp(46), dp(52)))
         }
-
         val title = TextView(this).apply {
             text = titleText
-            textSize = 26f
+            textSize = 25f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35, 42, 52))
+            setTextColor(Color.rgb(24, 47, 38))
         }
-
         header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
         root.addView(header, matchParentWrapContent())
 
         if (!subtitleText.isNullOrBlank()) {
-            val subtitle = TextView(this).apply {
+            root.addView(TextView(this).apply {
                 text = subtitleText
                 textSize = 13f
-                setTextColor(Color.rgb(110, 118, 130))
-                setPadding(0, 0, 0, dp(14))
-            }
-            root.addView(subtitle, matchParentWrapContent())
+                setTextColor(Color.rgb(104, 122, 113))
+                setPadding(0, 0, 0, dp(12))
+            }, matchParentWrapContent())
         }
 
         val pageContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(245, 247, 250))
+            setBackgroundColor(Color.rgb(246, 249, 247))
         }
-        pageContainer.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-        pageContainer.addView(
-            createBottomNavigation(),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(72)
-            )
-        )
-
+        pageContainer.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        pageContainer.addView(createBottomNavigation(), LinearLayout.LayoutParams(-1, dp(72)))
         setContentView(pageContainer)
+
         if (screen == Screen.HOME) {
             val restoreY = lastScrollY
             scroll.post {
-                if (screen != Screen.HOME) return@post
-                restoringHomeScroll = true
-                scroll.scrollTo(0, restoreY.coerceAtLeast(0))
-                scroll.postOnAnimation {
-                    restoringHomeScroll = false
+                if (screen == Screen.HOME) {
+                    restoringHomeScroll = true
+                    scroll.scrollTo(0, restoreY.coerceAtLeast(0))
+                    scroll.postOnAnimation { restoringHomeScroll = false }
                 }
             }
         }
@@ -363,16 +336,12 @@ class MainActivity : Activity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(7), dp(8), dp(7))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
             background = GradientDrawable().apply {
                 setColor(Color.WHITE)
-                cornerRadii = floatArrayOf(
-                    dp(18).toFloat(), dp(18).toFloat(),
-                    dp(18).toFloat(), dp(18).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
+                cornerRadii = floatArrayOf(dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), 0f, 0f, 0f, 0f)
             }
-            elevation = dp(10).toFloat()
+            elevation = dp(12).toFloat()
         }
 
         fun addNavItem(icon: String, label: String, target: Screen) {
@@ -381,100 +350,49 @@ class MainActivity : Activity() {
                 Screen.TABLE -> screen == Screen.TABLE
                 Screen.FNB -> screen == Screen.FNB
                 Screen.TRANSACTIONS -> screen == Screen.TRANSACTIONS
-                Screen.PS_SETTINGS, Screen.TABLE_SETTINGS, Screen.TV_SETTINGS ->
-                    screen == Screen.PS_SETTINGS || screen == Screen.TABLE_SETTINGS || screen == Screen.TV_SETTINGS
+                else -> false
             }
-
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 isClickable = true
                 isFocusable = true
-                setPadding(dp(4), 0, dp(4), 0)
-                background = if (selected) {
-                    GradientDrawable().apply {
-                        setColor(Color.rgb(235, 241, 255))
-                        cornerRadius = dp(14).toFloat()
-                    }
-                } else {
-                    GradientDrawable().apply {
-                        setColor(Color.TRANSPARENT)
-                        cornerRadius = dp(14).toFloat()
-                    }
-                }
+                setPadding(dp(4), dp(3), dp(4), dp(2))
+                background = if (selected) roundedBackground(Color.rgb(231, 246, 238), dp(16)) else roundedBackground(Color.TRANSPARENT, dp(16))
                 setOnClickListener {
                     when (target) {
-                        Screen.HOME -> {
-                            screen = Screen.HOME
-                            buildHomeScreen()
-                        }
-                        Screen.TABLE -> {
-                            selectedTable = selectedTable.coerceIn(1, TABLE_COUNT)
-                            screen = Screen.TABLE
-                            buildTableScreen()
-                        }
-                        Screen.FNB -> {
-                            screen = Screen.FNB
-                            buildFnbScreen()
-                        }
-                        Screen.TRANSACTIONS -> {
-                            screen = Screen.TRANSACTIONS
-                            buildTransactionsScreen()
-                        }
-                        Screen.PS_SETTINGS, Screen.TABLE_SETTINGS, Screen.TV_SETTINGS -> {
-                            screen = Screen.PS_SETTINGS
-                            buildSettingsMenuScreen()
-                        }
+                        Screen.HOME -> { screen = Screen.HOME; buildHomeScreen() }
+                        Screen.TABLE -> { selectedTable = selectedTable.coerceIn(1, TABLE_COUNT); screen = Screen.TABLE; buildTableScreen() }
+                        Screen.FNB -> { screen = Screen.FNB; buildFnbScreen() }
+                        Screen.TRANSACTIONS -> { screen = Screen.TRANSACTIONS; buildTransactionsScreen() }
+                        else -> Unit
                     }
                 }
             }
-
-            val iconView = TextView(this).apply {
+            item.addView(TextView(this).apply {
                 text = icon
-                textSize = if (selected) 22f else 21f
+                textSize = 20f
                 gravity = Gravity.CENTER
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                setTextColor(if (selected) Color.rgb(37, 99, 235) else Color.rgb(105, 113, 126))
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (selected) Color.rgb(22, 131, 91) else Color.rgb(112, 128, 119))
                 includeFontPadding = false
                 contentDescription = label
-            }
-            item.addView(
-                iconView,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(30))
-            )
-
-            val labelView = TextView(this).apply {
+            }, LinearLayout.LayoutParams(-1, dp(30)))
+            item.addView(TextView(this).apply {
                 text = label
                 textSize = 10f
                 gravity = Gravity.CENTER
-                typeface = Typeface.create(
-                    Typeface.DEFAULT,
-                    if (selected) Typeface.BOLD else Typeface.NORMAL
-                )
-                setTextColor(if (selected) Color.rgb(37, 99, 235) else Color.rgb(92, 99, 112))
+                typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                setTextColor(if (selected) Color.rgb(22, 131, 91) else Color.rgb(99, 116, 107))
                 includeFontPadding = false
-            }
-            item.addView(
-                labelView,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20))
-            )
-
-            bar.addView(
-                item,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                    leftMargin = dp(2)
-                    rightMargin = dp(2)
-                }
-            )
+            }, LinearLayout.LayoutParams(-1, dp(20)))
+            bar.addView(item, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(2); rightMargin = dp(2) })
         }
 
-        // Ikon dibuat sederhana dan ringan, tanpa library tambahan.
         addNavItem("⌂", "Beranda", Screen.HOME)
         addNavItem("PS", "PS", Screen.TABLE)
         addNavItem("＋", "F&B", Screen.FNB)
         addNavItem("▣", "Transaksi", Screen.TRANSACTIONS)
-        addNavItem("⚙", "Pengaturan", Screen.PS_SETTINGS)
-
         return bar
     }
 
@@ -542,17 +460,123 @@ class MainActivity : Activity() {
         root.addView(tvSettingsButton, matchParentButton())
     }
 
-    private fun buildFnbScreen() {
-        buildBase("F&B", "Kelola makanan dan minuman")
+    private data class FnbProduct(val name: String, val price: Long, val category: String)
+    private val fnbProducts = listOf(
+        FnbProduct("Indomie Goreng", 12000, "Makanan"),
+        FnbProduct("Kentang Goreng", 15000, "Makanan"),
+        FnbProduct("Es Teh", 5000, "Minuman"),
+        FnbProduct("Air Mineral", 4000, "Minuman"),
+        FnbProduct("Kopi", 8000, "Minuman"),
+        FnbProduct("Snack", 10000, "Snack")
+    )
+    private val fnbCart = linkedMapOf<String, Int>()
 
-        val empty = TextView(this).apply {
-            text = "Modul F&B siap menjadi menu utama.\nData produk F&B belum tersedia di sistem saat ini."
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(95, 102, 114))
-            setPadding(dp(24), dp(60), dp(24), dp(60))
+    private fun buildFnbScreen() {
+        buildBase("F&B", "Pesanan makanan & minuman")
+
+        val categories = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("Semua", "Makanan", "Minuman", "Snack").forEachIndexed { index, category ->
+            val chip = TextView(this).apply {
+                text = category
+                textSize = 12f
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (index == 0) Color.WHITE else Color.rgb(48, 72, 62))
+                background = roundedBackground(if (index == 0) Color.rgb(22, 131, 91) else Color.WHITE, dp(18))
+                setPadding(dp(15), dp(9), dp(15), dp(9))
+            }
+            categories.addView(chip, LinearLayout.LayoutParams(-2, dp(38)).apply {
+                rightMargin = dp(7)
+            })
         }
-        root.addView(empty, matchParentWrapContent())
+        root.addView(categories, matchParentWrapContent())
+
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundedBackground(Color.WHITE, dp(18))
+        }
+        info.addView(TextView(this).apply {
+            text = "Keranjang"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(28, 52, 42))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        val cartCount = fnbCart.values.sum()
+        val cartTotal = fnbCart.entries.sumOf { entry ->
+            fnbProducts.firstOrNull { it.name == entry.key }?.price?.times(entry.value) ?: 0L
+        }
+        info.addView(TextView(this).apply {
+            text = if (cartCount == 0) "Belum ada item" else "$cartCount item • ${formatRupiah(cartTotal)}"
+            textSize = 12f
+            setTextColor(Color.rgb(22, 131, 91))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(-2, -2))
+        root.addView(info, matchParentWrapContent().apply { topMargin = dp(10) })
+
+        addSectionTitle(root, "Menu")
+        fnbProducts.forEach { product ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(10), dp(12))
+                background = roundedBackground(Color.WHITE, dp(18))
+                elevation = dp(1).toFloat()
+            }
+            val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            text.addView(TextView(this@MainActivity).apply {
+                this.text = product.name
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(31, 54, 44))
+            }, matchParentWrapContent())
+            text.addView(TextView(this@MainActivity).apply {
+                this.text = "${product.category} • ${formatRupiah(product.price)}"
+                textSize = 12f
+                setTextColor(Color.rgb(111, 128, 119))
+                setPadding(0, dp(3), 0, 0)
+            }, matchParentWrapContent())
+            row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+            val add = createPrimaryButton("Tambah").apply {
+                textSize = 12f
+                minHeight = dp(40)
+                minimumHeight = dp(40)
+                setOnClickListener {
+                    fnbCart[product.name] = (fnbCart[product.name] ?: 0) + 1
+                    buildFnbScreen()
+                }
+            }
+            row.addView(add, LinearLayout.LayoutParams(dp(86), dp(40)))
+            root.addView(row, matchParentWrapContent().apply { bottomMargin = dp(8) })
+        }
+
+        if (cartCount > 0) {
+            val checkout = createPrimaryButton("Lanjutkan Pesanan • ${formatRupiah(cartTotal)}")
+            checkout.setOnClickListener { showFnbCheckoutDialog() }
+            root.addView(checkout, matchParentButton().apply { topMargin = dp(8) })
+        }
+    }
+
+    private fun showFnbCheckoutDialog() {
+        val lines = fnbCart.entries.mapNotNull { entry ->
+            val product = fnbProducts.firstOrNull { it.name == entry.key } ?: return@mapNotNull null
+            "${entry.value} × ${product.name} — ${formatRupiah(product.price * entry.value)}"
+        }
+        val total = fnbCart.entries.sumOf { entry ->
+            fnbProducts.firstOrNull { it.name == entry.key }?.price?.times(entry.value) ?: 0L
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Konfirmasi F&B")
+            .setMessage(lines.joinToString("\n") + "\n\nTotal: ${formatRupiah(total)}")
+            .setNegativeButton("Kembali", null)
+            .setPositiveButton("Simpan Pesanan") { _, _ ->
+                addTodayIncome(total)
+                fnbCart.clear()
+                showToast("Pesanan F&B tersimpan")
+                buildFnbScreen()
+            }
+            .show()
     }
 
     private fun buildTransactionsScreen() {
@@ -583,100 +607,70 @@ class MainActivity : Activity() {
         homeTimerHandler.removeCallbacks(homeTimerRunnable)
         homeTimerViews.clear()
 
-        buildBase("Beranda", "Ringkasan operasional rental PS")
+        buildBase("Beranda", "Operasional rental PS hari ini")
 
-        val hero = LinearLayout(this).apply {
+        val greeting = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            background = roundedBackground(Color.rgb(28, 36, 52), dp(24))
-            elevation = dp(3).toFloat()
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundedBackground(Color.WHITE, dp(22))
+            elevation = dp(1).toFloat()
         }
-
-        hero.addView(createProfileAvatar(dp(68)), LinearLayout.LayoutParams(dp(68), dp(68)))
-
-        val heroText = LinearLayout(this).apply {
+        greeting.addView(createProfileAvatar(dp(54)), LinearLayout.LayoutParams(dp(54), dp(54)))
+        greeting.addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, 0, 0)
-        }
-        heroText.addView(TextView(this@MainActivity).apply {
-            text = "Rental PS"
-            textSize = 21f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-        }, matchParentWrapContent())
-        heroText.addView(TextView(this@MainActivity).apply {
-            text = "Dashboard kasir & kontrol sesi"
-            textSize = 12f
-            setTextColor(Color.rgb(190, 198, 211))
-            setPadding(0, dp(4), 0, 0)
-        }, matchParentWrapContent())
-        hero.addView(heroText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(hero, matchParentWrapContent())
+            setPadding(dp(13), 0, 0, 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Rental PS"
+                textSize = 19f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(27, 54, 43))
+            }, matchParentWrapContent())
+            addView(TextView(this@MainActivity).apply {
+                text = "Siap melayani pelanggan"
+                textSize = 12f
+                setTextColor(Color.rgb(104, 123, 113))
+                setPadding(0, dp(3), 0, 0)
+            }, matchParentWrapContent())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(greeting, matchParentWrapContent())
 
-        val incomeCard = LinearLayout(this).apply {
+        val income = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = roundedBackground(Color.rgb(24, 32, 47), dp(24))
+            setPadding(dp(18), dp(17), dp(18), dp(17))
+            background = roundedBackground(Color.rgb(22, 131, 91), dp(22))
             elevation = dp(2).toFloat()
         }
-        val incomeTop = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        incomeTop.addView(TextView(this@MainActivity).apply {
-            text = "PENGHASILAN HARI INI"
+        income.addView(TextView(this@MainActivity).apply {
+            text = "PENDAPATAN HARI INI"
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(178, 188, 203))
-        }, LinearLayout.LayoutParams(0, dp(24), 1f))
-        incomeTop.addView(TextView(this@MainActivity).apply {
-            text = "Rp"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = roundedBackground(Color.rgb(55, 125, 88), dp(10))
-            setPadding(dp(9), dp(5), dp(9), dp(5))
-        }, LinearLayout.LayoutParams(dp(38), dp(28)))
-        incomeCard.addView(incomeTop, matchParentWrapContent())
-        incomeCard.addView(TextView(this@MainActivity).apply {
+            setTextColor(Color.rgb(211, 240, 226))
+        }, matchParentWrapContent())
+        income.addView(TextView(this@MainActivity).apply {
             text = formatRupiah(getTodayIncome())
-            textSize = 30f
+            textSize = 29f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            setPadding(0, dp(5), 0, 0)
+            setPadding(0, dp(4), 0, 0)
         }, matchParentWrapContent())
-        incomeCard.addView(TextView(this@MainActivity).apply {
-            text = "Akumulasi sesi yang selesai hari ini"
-            textSize = 11f
-            setTextColor(Color.rgb(168, 178, 193))
-            setPadding(0, dp(3), 0, 0)
-        }, matchParentWrapContent())
-        root.addView(incomeCard, matchParentWrapContent().apply { topMargin = dp(12) })
-
-        val quickRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        quickRow.addView(createQuickAction("＋", "Mulai sesi") { screen = Screen.TABLE; buildTableScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
-        quickRow.addView(createQuickAction("▣", "Transaksi") { screen = Screen.TRANSACTIONS; buildTransactionsScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
-        quickRow.addView(createQuickAction("⚙", "Pengaturan") { screen = Screen.PS_SETTINGS; buildSettingsMenuScreen() }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
-        root.addView(quickRow, matchParentWrapContent())
+        root.addView(income, matchParentWrapContent().apply { topMargin = dp(10) })
 
         val activeCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
         val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
         val availableCount = TABLE_COUNT - activeCount - pausedCount
-
-        val stats = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf(
+            Triple("Aktif", activeCount.toString(), Color.rgb(22, 131, 91)),
+            Triple("Pause", pausedCount.toString(), Color.rgb(166, 117, 39)),
+            Triple("Kosong", availableCount.toString(), Color.rgb(92, 111, 101))
+        ).forEachIndexed { i, item ->
+            stats.addView(createDashboardStat(item.first, item.second, item.third), LinearLayout.LayoutParams(0, dp(76), 1f).apply {
+                if (i > 0) leftMargin = dp(4)
+                if (i < 2) rightMargin = dp(4)
+                topMargin = dp(10)
+            })
         }
-        stats.addView(createDashboardStat("AKTIF", activeCount.toString(), Color.rgb(55, 125, 88)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
-        stats.addView(createDashboardStat("PAUSE", pausedCount.toString(), Color.rgb(145, 112, 60)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
-        stats.addView(createDashboardStat("KOSONG", availableCount.toString(), Color.rgb(90, 99, 112)),
-            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
         root.addView(stats, matchParentWrapContent())
 
         val section = LinearLayout(this).apply {
@@ -685,19 +679,21 @@ class MainActivity : Activity() {
             setPadding(0, dp(18), 0, dp(9))
         }
         section.addView(TextView(this@MainActivity).apply {
-            text = "Meja PlayStation"
-            textSize = 18f
+            text = "Sesi PS"
+            textSize = 19f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35, 42, 52))
+            setTextColor(Color.rgb(27, 54, 43))
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
-        val pauseAllButton = createSmallDashboardButton(if (activeCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL").apply {
-            isEnabled = activeCount > 0 || pausedCount > 0
-            alpha = if (isEnabled) 1f else 0.5f
-            setOnClickListener {
-                if (activeCount > 0) showPauseAllConfirmation() else if (pausedCount > 0) showResumeAllConfirmation()
-            }
+        if (activeCount > 0 || pausedCount > 0) {
+            section.addView(TextView(this).apply {
+                text = if (activeCount > 0) "${activeCount} aktif" else "${pausedCount} pause"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(22, 131, 91))
+                background = roundedBackground(Color.rgb(231, 246, 238), dp(14))
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+            })
         }
-        section.addView(pauseAllButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
         root.addView(section, matchParentWrapContent())
 
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
