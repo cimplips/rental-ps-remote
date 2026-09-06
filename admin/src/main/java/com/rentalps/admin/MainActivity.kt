@@ -35,6 +35,42 @@ class MainActivity : Activity() {
     private val statusHandler =
         Handler(Looper.getMainLooper())
 
+    private val homeTimerHandler =
+        Handler(Looper.getMainLooper())
+
+    private val homeTimerViews =
+        mutableMapOf<Int, TextView>()
+
+    private val homeTimerRunnable =
+        object : Runnable {
+            override fun run() {
+                if (screen != Screen.HOME) return
+
+                val now = System.currentTimeMillis()
+                homeTimerViews.forEach { (tableNumber, textView) ->
+                    val endTime = preferences.getLong(
+                        tableKey(tableNumber, "session_end_time"),
+                        0L
+                    )
+                    val active = preferences.getBoolean(
+                        tableKey(tableNumber, "active"),
+                        false
+                    ) && !preferences.getBoolean(
+                        tableKey(tableNumber, "paused"),
+                        false
+                    )
+
+                    if (active && endTime > now) {
+                        textView.text = formatTime(endTime - now)
+                    } else if (active && endTime > 0L) {
+                        textView.text = "00:00:00"
+                    }
+                }
+
+                homeTimerHandler.postDelayed(this, 1_000L)
+            }
+        }
+
     private val statusPollRunnable =
         object : Runnable {
             override fun run() {
@@ -166,6 +202,8 @@ class MainActivity : Activity() {
     private fun buildHomeScreen() {
         screen = Screen.HOME
         sessionTimer?.cancel()
+        homeTimerHandler.removeCallbacks(homeTimerRunnable)
+        homeTimerViews.clear()
 
         buildBase(
             "Rental PS",
@@ -252,6 +290,7 @@ class MainActivity : Activity() {
         root.addView(tvSettingsButton, matchParentButton())
 
         startStatusPolling()
+        homeTimerHandler.post(homeTimerRunnable)
     }
 
     private fun createSummaryCard(
@@ -337,14 +376,19 @@ class MainActivity : Activity() {
         }, matchParentWrapContent())
 
         if (active || paused) {
-            card.addView(TextView(this).apply {
+            val timeText = TextView(this).apply {
                 text = formatTime(remaining)
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(Color.rgb(70, 78, 90))
                 setPadding(0, dp(4), 0, 0)
-            }, matchParentWrapContent())
+            }
+            card.addView(timeText, matchParentWrapContent())
+
+            if (active && !paused) {
+                homeTimerViews[tableNumber] = timeText
+            }
         }
 
         return card
@@ -985,6 +1029,11 @@ class MainActivity : Activity() {
 
     private fun stopStatusPolling() {
         statusHandler.removeCallbacks(statusPollRunnable)
+    }
+
+    private fun stopHomeTimer() {
+        homeTimerHandler.removeCallbacks(homeTimerRunnable)
+        homeTimerViews.clear()
     }
 
     private fun sendCommandToTable(tableNumber: Int, command: String) {
