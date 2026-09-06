@@ -1,1 +1,28 @@
-<resources><style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:colorAccent">#4F8CFF</item><item name="android:navigationBarColor">#F6F8FB</item><item name="android:statusBarColor">#F6F8FB</item><item name="android:windowLightStatusBar">true</item></style></resources>
+<resources>
+    <!--
+        Rental PS Admin
+        Baseline UI: mobile-banking inspired, clean and green.
+        Keep this theme neutral; screen-level components can use their own
+        surfaces and semantic colors without fighting the app theme.
+    -->
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+
+        <!-- Primary brand -->
+        <item name="android:colorAccent">#16835B</item>
+
+        <!-- System bars -->
+        <item name="android:statusBarColor">#F5F7F6</item>
+        <item name="android:navigationBarColor">#F5F7F6</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+
+        <!-- Clean banking-style surfaces -->
+        <item name="android:windowBackground">#F5F7F6</item>
+        <item name="android:windowActionModeOverlay">true</item>
+
+        <!-- Avoid the old blue selection/accent look -->
+        <item name="android:colorControlActivated">#16835B</item>
+        <item name="android:colorControlHighlight">#1416835B</item>
+    </style>
+</resources>
