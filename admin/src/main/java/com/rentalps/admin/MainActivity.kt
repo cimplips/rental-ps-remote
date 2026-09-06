@@ -832,12 +832,22 @@ class MainActivity : Activity() {
                                 return@runOnUiThread
                             }
 
+                            val validStatus = isValidTvStatusResponse(response)
                             tvConnectionStatus[tableNumber] =
-                                if (response.startsWith("STATUS|", ignoreCase = true)) {
+                                if (validStatus) {
                                     TvConnectionState.CONNECTED
                                 } else {
                                     TvConnectionState.DISCONNECTED
                                 }
+
+                            if (!validStatus) {
+                                if (screen == Screen.TABLE && selectedTable == tableNumber) {
+                                    scheduleTableRecoveryRefresh()
+                                } else if (screen == Screen.HOME) {
+                                    scheduleHomeRefresh()
+                                }
+                                return@runOnUiThread
+                            }
 
                             val parts = response.split("|")
                             val status = parts.getOrNull(1)?.uppercase(Locale.US).orEmpty()
@@ -1447,8 +1457,19 @@ class MainActivity : Activity() {
                                 return@runOnUiThread
                             }
 
-                            val connected = response.startsWith("STATUS|", ignoreCase = true)
-                            tvConnectionStatus[tableNumber] = if (connected) TvConnectionState.CONNECTED else TvConnectionState.DISCONNECTED
+                            val connected = isValidTvStatusResponse(response)
+                            tvConnectionStatus[tableNumber] =
+                                if (connected) {
+                                    TvConnectionState.CONNECTED
+                                } else {
+                                    TvConnectionState.DISCONNECTED
+                                }
+                            if (!connected) {
+                                if (rebuildWhenChanged && screen == Screen.HOME) {
+                                    scheduleHomeRefresh()
+                                }
+                                return@runOnUiThread
+                            }
                             applyTvStatus(
                                 tableNumber = tableNumber,
                                 response = response,
@@ -1479,6 +1500,17 @@ class MainActivity : Activity() {
 
     private fun getStatusRequestGeneration(tableNumber: Int): Long =
         statusRequestGeneration[tableNumber] ?: 0L
+
+    private fun isValidTvStatusResponse(response: String): Boolean {
+        val parts = response.split("|")
+        if (parts.size != 3) return false
+        if (!parts[0].equals("STATUS", ignoreCase = true)) return false
+
+        val status = parts[1].uppercase(Locale.US)
+        if (status !in setOf("ACTIVE", "PAUSED", "IDLE")) return false
+
+        return parts[2].toLongOrNull() != null
+    }
 
     private fun applyTvStatus(
         tableNumber: Int,
