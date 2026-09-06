@@ -479,16 +479,47 @@ class MainActivity : Activity() {
     }
 
     private fun buildSettingsMenuScreen() {
-        buildBase("Pengaturan", "Kelola konfigurasi aplikasi dan TV")
+        buildBase("Pengaturan", "Personalisasi aplikasi dan perangkat")
 
-        val info = TextView(this).apply {
-            text = "Pilih pengaturan yang ingin diubah."
-            textSize = 14f
-            setTextColor(Color.rgb(110, 118, 130))
-            setPadding(dp(2), dp(4), dp(2), dp(12))
+        addSectionTitle(root, "Profil Toko")
+        val profileCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundedBackground(Color.WHITE, dp(18))
+            elevation = dp(2).toFloat()
         }
-        root.addView(info, matchParentWrapContent())
 
+        val avatar = createProfileAvatar(dp(64))
+        profileCard.addView(avatar, LinearLayout.LayoutParams(dp(64), dp(64)))
+
+        val profileText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), 0, dp(8), 0)
+        }
+        profileText.addView(TextView(this@MainActivity).apply {
+            text = "Logo / Foto Profil"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(35, 42, 52))
+        }, matchParentWrapContent())
+        profileText.addView(TextView(this@MainActivity).apply {
+            text = "Tampilkan logo toko di Beranda"
+            textSize = 12f
+            setTextColor(Color.rgb(115, 122, 134))
+            setPadding(0, dp(3), 0, 0)
+        }, matchParentWrapContent())
+        profileCard.addView(profileText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val changeLogo = createSoftButton("GANTI")
+        changeLogo.textSize = 11f
+        changeLogo.minHeight = dp(40)
+        changeLogo.minimumHeight = dp(40)
+        changeLogo.setOnClickListener { chooseProfileImage() }
+        profileCard.addView(changeLogo, LinearLayout.LayoutParams(dp(76), dp(42)))
+        root.addView(profileCard, matchParentWrapContent())
+
+        addSectionTitle(root, "Pengaturan Operasional")
         val psSettingsButton = createSoftButton("Harga & Durasi PS")
         psSettingsButton.setOnClickListener {
             screen = Screen.PS_SETTINGS
@@ -552,90 +583,200 @@ class MainActivity : Activity() {
         homeTimerHandler.removeCallbacks(homeTimerRunnable)
         homeTimerViews.clear()
 
-        buildBase(
-            "Rental PS",
-            "Kelola meja dan sesi PlayStation"
-        )
+        buildBase("Beranda", "Ringkasan operasional rental PS")
 
-        // Logo CimpliPS dibuat compact agar dashboard tetap sederhana dan ruang scroll maksimal.
-        val logoView = ImageView(this).apply {
-            setImageBitmap(loadCimpliPsLogo())
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = "Logo CimpliPS"
-        }
-        root.addView(
-            logoView,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(64)).apply {
-                bottomMargin = dp(2)
-            }
-        )
-
-        val activeSessionCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
-        val pausedSessionCount = (1..TABLE_COUNT).count { isTablePaused(it) }
-
-        // Kontrol utama dashboard sengaja dibuat kecil dan diletakkan di kanan atas.
-        // Jika semua sesi aktif sudah di-pause, tombol berubah menjadi RESUME ALL.
-        val topBar = LinearLayout(this).apply {
+        val hero = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = roundedBackground(Color.rgb(28, 36, 52), dp(24))
+            elevation = dp(3).toFloat()
         }
 
-        val pauseAllButton = createSmallDashboardButton(
-            if (activeSessionCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL"
-        ).apply {
-            contentDescription = if (activeSessionCount > 0) "Pause semua sesi" else "Resume semua sesi"
-            isEnabled = activeSessionCount > 0 || pausedSessionCount > 0
-            alpha = if (isEnabled) 1f else 0.55f
-            setOnClickListener {
-                if (activeSessionCount > 0) {
-                    showPauseAllConfirmation()
-                } else if (pausedSessionCount > 0) {
-                    showResumeAllConfirmation()
-                }
-            }
-        }
+        hero.addView(createProfileAvatar(dp(68)), LinearLayout.LayoutParams(dp(68), dp(68)))
 
-        topBar.addView(
-            pauseAllButton,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32))
-        )
-
-        root.addView(
-            topBar,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)).apply {
-                topMargin = dp(2)
-                bottomMargin = dp(8)
-            }
-        )
-
-        val grid = LinearLayout(this).apply {
+        val heroText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), 0, 0, 0)
         }
+        heroText.addView(TextView(this@MainActivity).apply {
+            text = "Rental PS"
+            textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }, matchParentWrapContent())
+        heroText.addView(TextView(this@MainActivity).apply {
+            text = "Dashboard kasir & kontrol sesi"
+            textSize = 12f
+            setTextColor(Color.rgb(190, 198, 211))
+            setPadding(0, dp(4), 0, 0)
+        }, matchParentWrapContent())
+        hero.addView(heroText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(hero, matchParentWrapContent())
 
-        for (row in 0 until 5) {
-            val rowLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+        val incomeCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(17), dp(20), dp(17))
+            background = roundedBackground(Color.WHITE, dp(22))
+            elevation = dp(2).toFloat()
+        }
+        val incomeTop = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        incomeTop.addView(TextView(this@MainActivity).apply {
+            text = "PENGHASILAN HARI INI"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(120, 128, 141))
+        }, LinearLayout.LayoutParams(0, dp(24), 1f))
+        incomeTop.addView(TextView(this@MainActivity).apply {
+            text = "Rp"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(55, 125, 88))
+            gravity = Gravity.CENTER
+            background = roundedBackground(Color.rgb(235, 248, 240), dp(10))
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+        }, LinearLayout.LayoutParams(dp(38), dp(28)))
+        incomeCard.addView(incomeTop, matchParentWrapContent())
+        incomeCard.addView(TextView(this@MainActivity).apply {
+            text = formatRupiah(getTodayIncome())
+            textSize = 30f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(31, 42, 55))
+            setPadding(0, dp(3), 0, 0)
+        }, matchParentWrapContent())
+        incomeCard.addView(TextView(this@MainActivity).apply {
+            text = "Akumulasi sesi yang selesai hari ini"
+            textSize = 11f
+            setTextColor(Color.rgb(145, 151, 161))
+            setPadding(0, dp(3), 0, 0)
+        }, matchParentWrapContent())
+        root.addView(incomeCard, matchParentWrapContent().apply { topMargin = dp(12) })
+
+        val activeCount = (1..TABLE_COUNT).count { isTableActive(it) && !isTablePaused(it) }
+        val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
+        val availableCount = TABLE_COUNT - activeCount - pausedCount
+
+        val stats = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        stats.addView(createDashboardStat("AKTIF", activeCount.toString(), Color.rgb(55, 125, 88)),
+            LinearLayout.LayoutParams(0, dp(82), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
+        stats.addView(createDashboardStat("PAUSE", pausedCount.toString(), Color.rgb(145, 112, 60)),
+            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
+        stats.addView(createDashboardStat("KOSONG", availableCount.toString(), Color.rgb(90, 99, 112)),
+            LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); topMargin = dp(10) })
+        root.addView(stats, matchParentWrapContent())
+
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(18), 0, dp(9))
+        }
+        section.addView(TextView(this@MainActivity).apply {
+            text = "Meja PlayStation"
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(35, 42, 52))
+        }, LinearLayout.LayoutParams(0, dp(32), 1f))
+        val pauseAllButton = createSmallDashboardButton(if (activeCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL").apply {
+            isEnabled = activeCount > 0 || pausedCount > 0
+            alpha = if (isEnabled) 1f else 0.5f
+            setOnClickListener {
+                if (activeCount > 0) showPauseAllConfirmation() else if (pausedCount > 0) showResumeAllConfirmation()
             }
+        }
+        section.addView(pauseAllButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
+        root.addView(section, matchParentWrapContent())
 
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for (row in 0 until 5) {
+            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (column in 0 until 2) {
                 val tableNumber = row * 2 + column + 1
-                rowLayout.addView(
-                    createTableCard(tableNumber),
-                    LinearLayout.LayoutParams(0, dp(166), 1f).apply {
-                        if (column == 0) rightMargin = dp(5)
-                        else leftMargin = dp(5)
-                        bottomMargin = dp(10)
-                    }
-                )
+                rowLayout.addView(createTableCard(tableNumber), LinearLayout.LayoutParams(0, dp(166), 1f).apply {
+                    if (column == 0) rightMargin = dp(5) else leftMargin = dp(5)
+                    bottomMargin = dp(10)
+                })
             }
-
             grid.addView(rowLayout, matchParentWrapContent())
         }
-
         root.addView(grid, matchParentWrapContent())
 
         startStatusPolling()
         homeTimerHandler.post(homeTimerRunnable)
+    }
+
+    private fun createDashboardStat(label: String, value: String, valueColor: Int): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = roundedBackground(Color.WHITE, dp(18))
+            elevation = dp(1).toFloat()
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                textSize = 22f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(valueColor)
+            }, matchParentWrapContent())
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 9f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(130, 137, 148))
+                setPadding(0, dp(2), 0, 0)
+            }, matchParentWrapContent())
+        }
+    }
+
+    private fun createProfileAvatar(size: Int): ImageView {
+        return ImageView(this).apply {
+            val custom = preferences.getString("profile_logo_base64", "") ?: ""
+            val bitmap = if (custom.isNotBlank()) {
+                try {
+                    val bytes = Base64.decode(custom, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                } catch (_: Exception) { null }
+            } else null
+            setImageBitmap(bitmap ?: loadCimpliPsLogo())
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = roundedBackground(Color.rgb(238, 241, 246), size / 2)
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+            contentDescription = "Logo profil"
+        }
+    }
+
+    private fun roundedBackground(color: Int, radius: Int): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
+        }
+
+    private fun getTodayIncome(): Long =
+        preferences.getLong("income_${java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}", 0L)
+
+    private fun addTodayIncome(amount: Long) {
+        if (amount <= 0L) return
+        val key = "income_${java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}"
+        preferences.edit().putLong(key, getTodayIncome() + amount).apply()
+    }
+
+    private fun chooseProfileImage() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, REQUEST_PROFILE_IMAGE)
     }
 
     private fun createSummaryCard(
@@ -1540,6 +1681,9 @@ class MainActivity : Activity() {
             sendCommandToTable(tableNumber, "STOP")
         }
 
+        val completedAmount = preferences.getLong(tableKey(tableNumber, "session_price"), 0L)
+        addTodayIncome(completedAmount)
+
         preferences.edit()
             .remove(tableKey(tableNumber, "session_end_time"))
             .remove(tableKey(tableNumber, "session_price"))
@@ -2128,6 +2272,24 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == REQUEST_PROFILE_IMAGE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            executor.execute {
+                val encoded = encodeQrisImage(uri)
+                runOnUiThread {
+                    if (encoded.isNullOrBlank()) {
+                        showToast("Gagal membaca gambar logo")
+                        return@runOnUiThread
+                    }
+                    preferences.edit().putString("profile_logo_base64", encoded).apply()
+                    if (screen == Screen.HOME) buildHomeScreen()
+                    else if (screen == Screen.PS_SETTINGS || screen == Screen.TABLE_SETTINGS || screen == Screen.TV_SETTINGS) buildSettingsMenuScreen()
+                    showToast("Logo profil berhasil diperbarui")
+                }
+            }
+            return
+        }
 
         if (requestCode != REQUEST_QRIS_IMAGE || resultCode != RESULT_OK) {
             return
@@ -2736,6 +2898,7 @@ class MainActivity : Activity() {
     companion object {
         private const val TABLE_COUNT = 10
         private const val REQUEST_QRIS_IMAGE = 4101
+        private const val REQUEST_PROFILE_IMAGE = 4102
         private val PS_TYPES = arrayOf("PS3", "PS4", "PS5")
         const val CIMPLI_PS_LOGO_BASE64 = "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"
     }
