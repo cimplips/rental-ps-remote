@@ -181,17 +181,17 @@ class MainActivity : Activity() {
     private fun buildBase(titleText: String, subtitleText: String? = null) {
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.rgb(245, 247, 250))
-            isFillViewport = false
+            isFillViewport = true
             isSmoothScrollingEnabled = true
             isVerticalScrollBarEnabled = true
-            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            overScrollMode = View.OVER_SCROLL_ALWAYS
             clipToPadding = false
             setPadding(0, 0, 0, dp(24))
         }
 
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(20), dp(18), dp(28))
+            setPadding(dp(18), dp(14), dp(18), dp(32))
         }
 
         scroll.addView(root)
@@ -262,7 +262,7 @@ class MainActivity : Activity() {
             "Kelola meja dan sesi PlayStation"
         )
 
-        // Logo CimpliPS ditampilkan di dashboard sebagai identitas aplikasi.
+        // Logo CimpliPS dibuat compact agar dashboard tetap sederhana dan ruang scroll maksimal.
         val logoView = ImageView(this).apply {
             setImageBitmap(loadCimpliPsLogo())
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -270,8 +270,8 @@ class MainActivity : Activity() {
         }
         root.addView(
             logoView,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(112)).apply {
-                bottomMargin = dp(4)
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(64)).apply {
+                bottomMargin = dp(2)
             }
         )
 
@@ -325,7 +325,7 @@ class MainActivity : Activity() {
                 val tableNumber = row * 2 + column + 1
                 rowLayout.addView(
                     createTableCard(tableNumber),
-                    LinearLayout.LayoutParams(0, dp(176), 1f).apply {
+                    LinearLayout.LayoutParams(0, dp(166), 1f).apply {
                         if (column == 0) rightMargin = dp(5)
                         else leftMargin = dp(5)
                         bottomMargin = dp(10)
