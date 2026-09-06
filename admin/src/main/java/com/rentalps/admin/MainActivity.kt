@@ -255,7 +255,7 @@ class MainActivity : Activity() {
 
     private fun buildBase(titleText: String, subtitleText: String? = null) {
         val scroll = TouchScrollView(this).apply {
-            setBackgroundColor(Color.rgb(245, 247, 250))
+            setBackgroundColor(Color.rgb(246, 248, 251))
             isFillViewport = false
             // Dashboard memakai scrollTo() untuk mempertahankan posisi. Smooth
             // scrolling di sini justru dapat membuat posisi terlihat bergerak sendiri.
@@ -274,7 +274,7 @@ class MainActivity : Activity() {
 
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(32))
+            setPadding(dp(18), dp(12), dp(18), dp(30))
         }
 
         scroll.addView(root)
@@ -291,7 +291,7 @@ class MainActivity : Activity() {
             val back = Button(this).apply {
                 text = "‹"
                 textSize = 28f
-                setTextColor(Color.rgb(55, 63, 75))
+                setTextColor(Color.rgb(48, 57, 72))
                 setBackgroundColor(Color.TRANSPARENT)
                 minWidth = dp(44)
                 minHeight = dp(48)
@@ -307,9 +307,9 @@ class MainActivity : Activity() {
 
         val title = TextView(this).apply {
             text = titleText
-            textSize = 26f
+            textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35, 42, 52))
+            setTextColor(Color.rgb(28, 35, 48))
         }
 
         header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
@@ -322,14 +322,14 @@ class MainActivity : Activity() {
                 text = "⚙"
                 textSize = 24f
                 gravity = Gravity.CENTER
-                setTextColor(Color.rgb(22, 131, 91))
+                setTextColor(Color.rgb(37, 150, 108))
                 setBackgroundColor(Color.TRANSPARENT)
                 isClickable = true
                 isFocusable = true
                 contentDescription = "Pengaturan"
                 setOnClickListener {
                     screen = Screen.TABLE_SETTINGS
-                    buildTableSettingsScreen()
+                    buildSettingsMenuScreen()
                 }
             }
             header.addView(settings, LinearLayout.LayoutParams(dp(48), dp(52)))
@@ -341,7 +341,7 @@ class MainActivity : Activity() {
             val subtitle = TextView(this).apply {
                 text = subtitleText
                 textSize = 13f
-                setTextColor(Color.rgb(110, 118, 130))
+                setTextColor(Color.rgb(108, 118, 133))
                 setPadding(0, 0, 0, dp(14))
             }
             root.addView(subtitle, matchParentWrapContent())
@@ -349,7 +349,7 @@ class MainActivity : Activity() {
 
         val pageContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(245, 247, 250))
+            setBackgroundColor(Color.rgb(246, 248, 251))
         }
         pageContainer.addView(
             scroll,
@@ -470,12 +470,12 @@ class MainActivity : Activity() {
             text = "Logo / Foto Profil"
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35, 42, 52))
+            setTextColor(Color.rgb(28, 35, 48))
         }, matchParentWrapContent())
         profileText.addView(TextView(this@MainActivity).apply {
             text = "Tampilkan logo toko di Beranda"
             textSize = 12f
-            setTextColor(Color.rgb(115, 122, 134))
+            setTextColor(Color.rgb(112, 122, 138))
             setPadding(0, dp(3), 0, 0)
         }, matchParentWrapContent())
         profileCard.addView(profileText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -509,36 +509,83 @@ class MainActivity : Activity() {
             buildTvSettingsScreen()
         }
         root.addView(tvSettingsButton, matchParentButton())
+
+        val fnbSettingsButton = createSoftButton("F&B & Menu")
+        fnbSettingsButton.setOnClickListener {
+            screen = Screen.FNB
+            buildFnbScreen()
+        }
+        root.addView(fnbSettingsButton, matchParentButton())
     }
 
     private fun buildFnbScreen() {
-        buildBase("F&B", "Pesanan makanan & minuman")
+        buildBase("F&B", "Pesanan makanan & minuman langsung ke meja")
 
         val products = listOf(
-            "Indomie Goreng" to 12000L,
-            "Kentang Goreng" to 15000L,
-            "Nasi Goreng" to 18000L,
-            "Es Teh" to 5000L,
-            "Kopi" to 8000L,
-            "Air Mineral" to 4000L
+            Triple("Indomie Goreng", 12000L, "Makanan"),
+            Triple("Kentang Goreng", 15000L, "Snack"),
+            Triple("Nasi Goreng", 18000L, "Makanan"),
+            Triple("Chicken Wings", 20000L, "Snack"),
+            Triple("Es Teh", 5000L, "Minuman"),
+            Triple("Kopi Susu", 12000L, "Minuman"),
+            Triple("Air Mineral", 4000L, "Minuman"),
+            Triple("Soda", 8000L, "Minuman")
         )
         val cart = mutableMapOf<String, Int>()
 
-        val summary = TextView(this).apply {
+        val tableLabel = TextView(this).apply {
+            text = "Pesanan untuk  •  Meja ${String.format(Locale.US, "%02d", selectedTable)}"
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35,42,52))
+            setTextColor(Color.rgb(45, 55, 68))
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = roundedBackground(Color.WHITE, dp(18))
         }
-        root.addView(summary, matchParentWrapContent())
+        root.addView(tableLabel, matchParentWrapContent())
+
+        val categories = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        listOf("Semua", "Makanan", "Minuman", "Snack").forEachIndexed { index, label ->
+            val chip = createSmallDashboardButton(label)
+            chip.textSize = 11f
+            chip.setTextColor(if (index == 0) Color.rgb(45, 125, 92) else Color.rgb(90, 100, 114))
+            chip.background = roundedBackground(
+                if (index == 0) Color.rgb(228, 241, 235) else Color.rgb(239, 243, 247),
+                dp(14)
+            )
+            categories.addView(chip, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                if (index > 0) leftMargin = dp(4)
+            })
+        }
+        root.addView(categories, matchParentWrapContent())
+
+        val search = createInput("Cari menu makanan / minuman")
+        search.setSingleLine(true)
+        search.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0)
+        root.addView(search, matchParentWrapContent())
+
+        val summary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = roundedBackground(Color.rgb(238, 242, 245), dp(18))
+        }
+        val summaryText = TextView(this).apply {
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(55, 65, 78))
+        }
+        summary.addView(summaryText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(summary, matchParentWrapContent().apply { topMargin = dp(8) })
 
         fun refreshSummary() {
             val count = cart.values.sum()
             val total = cart.entries.sumOf { entry ->
                 products.firstOrNull { it.first == entry.key }?.second?.times(entry.value) ?: 0L
             }
-            summary.text = if (count == 0) "Keranjang kosong" else "$count item  •  ${formatRupiah(total)}"
+            summaryText.text = if (count == 0) "Keranjang kosong" else "$count item  •  ${formatRupiah(total)}"
         }
         refreshSummary()
 
@@ -548,28 +595,41 @@ class MainActivity : Activity() {
             for (column in 0..1) {
                 val index = row + column
                 if (index >= products.size) break
-                val (name, price) = products[index]
+                val (name, price, category) = products[index]
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(14), dp(12), dp(14), dp(12))
                     background = roundedBackground(Color.WHITE, dp(18))
                     elevation = dp(1).toFloat()
                 }
+                val icon = TextView(this).apply {
+                    text = when (category) {
+                        "Minuman" -> "☕"
+                        "Snack" -> "🍟"
+                        else -> "🍜"
+                    }
+                    textSize = 25f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.rgb(100, 112, 124))
+                    background = roundedBackground(Color.rgb(242, 245, 247), dp(14))
+                }
+                card.addView(icon, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)))
                 card.addView(TextView(this).apply {
-                    text = name; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.rgb(35,42,52))
+                    text = name; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.rgb(45, 55, 68)); setPadding(0, dp(8), 0, dp(2))
                 }, matchParentWrapContent())
                 card.addView(TextView(this).apply {
-                    text = formatRupiah(price); textSize = 13f
-                    setTextColor(Color.rgb(100,110,104)); setPadding(0,dp(5),0,dp(8))
+                    text = formatRupiah(price); textSize = 12f
+                    setTextColor(Color.rgb(105, 116, 130)); setPadding(0, dp(1), 0, dp(7))
                 }, matchParentWrapContent())
                 val add = createPrimaryButton("+ Tambah")
+                add.textSize = 12f
                 add.setOnClickListener {
                     cart[name] = (cart[name] ?: 0) + 1
                     refreshSummary()
                 }
-                card.addView(add, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
-                rowLayout.addView(card, LinearLayout.LayoutParams(0, dp(125), 1f).apply {
+                card.addView(add, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
+                rowLayout.addView(card, LinearLayout.LayoutParams(0, dp(176), 1f).apply {
                     if (column == 0) rightMargin = dp(5) else leftMargin = dp(5)
                     bottomMargin = dp(10)
                 })
@@ -578,42 +638,77 @@ class MainActivity : Activity() {
         }
         root.addView(grid, matchParentWrapContent())
 
-        val checkout = createPrimaryButton("Lanjutkan Pesanan")
+        val checkout = createPrimaryButton("Lihat Keranjang  •  Pesan Sekarang")
         checkout.setOnClickListener {
             if (cart.isEmpty()) {
                 showToast("Pilih makanan atau minuman terlebih dahulu")
                 return@setOnClickListener
             }
+            val total = cart.entries.sumOf { entry ->
+                products.firstOrNull { it.first == entry.key }?.second?.times(entry.value) ?: 0L
+            }
             val count = cart.values.sum()
-            showToast("Pesanan F&B $count item siap diproses")
+            AlertDialog.Builder(this)
+                .setTitle("Konfirmasi Pesanan")
+                .setMessage("Meja ${String.format(Locale.US, "%02d", selectedTable)}\n$count item\nTotal ${formatRupiah(total)}")
+                .setNegativeButton("Kembali", null)
+                .setPositiveButton("KIRIM PESANAN") { _, _ ->
+                    val current = preferences.getLong("fnb_today_income", 0L)
+                    preferences.edit().putLong("fnb_today_income", current + total).apply()
+                    showToast("Pesanan F&B dikirim ke Meja ${String.format(Locale.US, "%02d", selectedTable)}")
+                    buildFnbScreen()
+                }
+                .show()
         }
         root.addView(checkout, matchParentButton().apply { topMargin = dp(6) })
     }
 
     private fun buildTransactionsScreen() {
-        buildBase("Transaksi", "Ringkasan pemasukan sesi PS")
+        buildBase("Transaksi", "Sesi PS dan penjualan F&B")
 
         val today = getTodayIncome()
         val activeCount = (1..TABLE_COUNT).count { isTableActive(it) }
         val pausedCount = (1..TABLE_COUNT).count { isTablePaused(it) }
+        val fnbIncome = preferences.getLong("fnb_today_income", 0L)
 
         val summary = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
 
         summary.addView(
-            createSummaryCard("Hari ini", formatRupiah(today), Color.rgb(22, 131, 91)),
+            createSummaryCard("Hari ini", formatRupiah(today), Color.rgb(37, 150, 108)),
             LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(5) }
         )
         summary.addView(
-            createSummaryCard("Sesi aktif", activeCount.toString(), Color.rgb(55, 125, 88)),
+            createSummaryCard("Sesi aktif", activeCount.toString(), Color.rgb(46, 150, 105)),
             LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) }
         )
         summary.addView(
-            createSummaryCard("Pause", pausedCount.toString(), Color.rgb(194, 142, 55)),
+            createSummaryCard("Pause", pausedCount.toString(), Color.rgb(218, 157, 67)),
             LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5) }
         )
         root.addView(summary, matchParentWrapContent())
+
+        val fnbCard = createSummaryCard("F&B hari ini", formatRupiah(fnbIncome), Color.rgb(45, 125, 92))
+        root.addView(fnbCard, matchParentWrapContent().apply { topMargin = dp(8) })
+
+        val filterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        listOf("Semua", "Sesi PS", "Cafe", "F&B").forEachIndexed { index, label ->
+            val filter = createSmallDashboardButton(label)
+            filter.textSize = 11f
+            filter.background = roundedBackground(
+                if (index == 0) Color.rgb(228, 241, 235) else Color.rgb(239, 243, 247),
+                dp(14)
+            )
+            filter.setTextColor(if (index == 0) Color.rgb(45, 125, 92) else Color.rgb(90, 100, 114))
+            filterRow.addView(filter, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                if (index > 0) leftMargin = dp(4)
+            })
+        }
+        root.addView(filterRow, matchParentWrapContent())
 
         addSectionTitle(root, "Sesi yang sedang berjalan")
 
@@ -631,13 +726,13 @@ class MainActivity : Activity() {
                 textSize = 16f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(Color.rgb(55, 63, 75))
+                setTextColor(Color.rgb(48, 57, 72))
             }, matchParentWrapContent())
             emptyCard.addView(TextView(this@MainActivity).apply {
                 text = "Mulai sesi dari menu PS atau Beranda."
                 textSize = 12f
                 gravity = Gravity.CENTER
-                setTextColor(Color.rgb(120, 128, 140))
+                setTextColor(Color.rgb(122, 132, 148))
                 setPadding(0, dp(5), 0, 0)
             }, matchParentWrapContent())
             root.addView(emptyCard, matchParentWrapContent())
@@ -662,7 +757,7 @@ class MainActivity : Activity() {
                     text = String.format(Locale.US, "Meja %02d", tableNumber)
                     textSize = 15f
                     typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.rgb(35, 42, 52))
+                    setTextColor(Color.rgb(28, 35, 48))
                 }, matchParentWrapContent())
                 info.addView(TextView(this@MainActivity).apply {
                     text = when {
@@ -673,9 +768,9 @@ class MainActivity : Activity() {
                     textSize = 11f
                     setTextColor(
                         when {
-                            paused -> Color.rgb(194, 142, 55)
-                            active -> Color.rgb(48, 155, 92)
-                            else -> Color.rgb(120, 128, 140)
+                            paused -> Color.rgb(218, 157, 67)
+                            active -> Color.rgb(46, 166, 113)
+                            else -> Color.rgb(122, 132, 148)
                         }
                     )
                     setPadding(0, dp(3), 0, 0)
@@ -701,7 +796,7 @@ class MainActivity : Activity() {
         val note = TextView(this).apply {
             text = "Pemasukan saat ini mengikuti sesi PS yang sudah selesai. Modul F&B akan memakai alur transaksi yang sama saat penyimpanan pesanan diaktifkan."
             textSize = 11f
-            setTextColor(Color.rgb(115, 122, 134))
+            setTextColor(Color.rgb(112, 122, 138))
             setPadding(dp(4), 0, dp(4), dp(16))
         }
         root.addView(note, matchParentWrapContent())
@@ -728,7 +823,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
-            background = roundedBackground(Color.rgb(28, 36, 52), dp(24))
+            background = roundedBackground(Color.rgb(232, 236, 240), dp(24))
             elevation = dp(3).toFloat()
         }
 
@@ -742,12 +837,12 @@ class MainActivity : Activity() {
             text = "Rental PS"
             textSize = 21f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(38, 48, 60))
         }, matchParentWrapContent())
         heroText.addView(TextView(this@MainActivity).apply {
             text = "Dashboard kasir & kontrol sesi"
             textSize = 12f
-            setTextColor(Color.rgb(190, 198, 211))
+            setTextColor(Color.rgb(112, 122, 134))
             setPadding(0, dp(4), 0, 0)
         }, matchParentWrapContent())
         hero.addView(heroText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -756,7 +851,7 @@ class MainActivity : Activity() {
         val incomeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = roundedBackground(Color.rgb(24, 32, 47), dp(24))
+            background = roundedBackground(Color.rgb(232, 236, 240), dp(24))
             elevation = dp(2).toFloat()
         }
         val incomeTop = LinearLayout(this).apply {
@@ -767,15 +862,15 @@ class MainActivity : Activity() {
             text = "PENGHASILAN HARI INI"
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(178, 188, 203))
+            setTextColor(Color.rgb(105, 116, 130))
         }, LinearLayout.LayoutParams(0, dp(24), 1f))
         incomeTop.addView(TextView(this@MainActivity).apply {
             text = "Rp"
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(45, 125, 92))
             gravity = Gravity.CENTER
-            background = roundedBackground(Color.rgb(55, 125, 88), dp(10))
+            background = roundedBackground(Color.rgb(226, 240, 234), dp(10))
             setPadding(dp(9), dp(5), dp(9), dp(5))
         }, LinearLayout.LayoutParams(dp(38), dp(28)))
         incomeCard.addView(incomeTop, matchParentWrapContent())
@@ -783,13 +878,13 @@ class MainActivity : Activity() {
             text = formatRupiah(getTodayIncome())
             textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
+            setTextColor(Color.rgb(38, 48, 60))
             setPadding(0, dp(5), 0, 0)
         }, matchParentWrapContent())
         incomeCard.addView(TextView(this@MainActivity).apply {
-            text = "Akumulasi sesi yang selesai hari ini"
+            text = "Akumulasi sesi PS + penjualan F&B hari ini"
             textSize = 11f
-            setTextColor(Color.rgb(168, 178, 193))
+            setTextColor(Color.rgb(112, 122, 134))
             setPadding(0, dp(3), 0, 0)
         }, matchParentWrapContent())
         root.addView(incomeCard, matchParentWrapContent().apply { topMargin = dp(12) })
@@ -809,7 +904,7 @@ class MainActivity : Activity() {
         val stats = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        stats.addView(createDashboardStat("AKTIF", activeCount.toString(), Color.rgb(55, 125, 88)),
+        stats.addView(createDashboardStat("AKTIF", activeCount.toString(), Color.rgb(46, 150, 105)),
             LinearLayout.LayoutParams(0, dp(82), 1f).apply { rightMargin = dp(5); topMargin = dp(10) })
         stats.addView(createDashboardStat("PAUSE", pausedCount.toString(), Color.rgb(145, 112, 60)),
             LinearLayout.LayoutParams(0, dp(82), 1f).apply { leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(10) })
@@ -826,7 +921,7 @@ class MainActivity : Activity() {
             text = "Meja PlayStation"
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(35, 42, 52))
+            setTextColor(Color.rgb(28, 35, 48))
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
         val pauseAllButton = createSmallDashboardButton(if (activeCount > 0) "Ⅱ PAUSE ALL" else "▶ RESUME ALL").apply {
             isEnabled = activeCount > 0 || pausedCount > 0
@@ -871,7 +966,7 @@ class MainActivity : Activity() {
                 textSize = 18f
                 gravity = Gravity.CENTER
                 setTextColor(Color.rgb(45, 57, 73))
-                background = roundedBackground(Color.rgb(239, 242, 246), dp(12))
+                background = roundedBackground(Color.rgb(241, 245, 248), dp(12))
             }, LinearLayout.LayoutParams(dp(36), dp(36)))
             addView(TextView(this@MainActivity).apply {
                 text = label
@@ -902,7 +997,7 @@ class MainActivity : Activity() {
                 textSize = 9f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
-                setTextColor(Color.rgb(130, 137, 148))
+                setTextColor(Color.rgb(128, 138, 153))
                 setPadding(0, dp(2), 0, 0)
             }, matchParentWrapContent())
         }
@@ -919,7 +1014,7 @@ class MainActivity : Activity() {
             } else null
             setImageBitmap(bitmap ?: loadCimpliPsLogo())
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = roundedBackground(Color.rgb(238, 241, 246), size / 2)
+            background = roundedBackground(Color.rgb(239, 243, 247), size / 2)
             clipToOutline = true
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: android.graphics.Outline) {
@@ -934,6 +1029,7 @@ class MainActivity : Activity() {
         GradientDrawable().apply {
             setColor(color)
             cornerRadius = radius.toFloat()
+            setStroke(dp(1), Color.rgb(232, 237, 242))
         }
 
     private fun getTodayIncome(): Long =
@@ -987,9 +1083,9 @@ class MainActivity : Activity() {
         val connectionState = getTvConnectionState(tableNumber)
 
         val statusColor = when {
-            active && !paused -> Color.rgb(48, 155, 92)
-            paused -> Color.rgb(194, 142, 55)
-            else -> Color.rgb(145, 151, 160)
+            active && !paused -> Color.rgb(46, 166, 113)
+            paused -> Color.rgb(218, 157, 67)
+            else -> Color.rgb(139, 149, 163)
         }
         val surfaceColor = when {
             active && !paused -> Color.rgb(246, 252, 248)
@@ -1039,9 +1135,9 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(
                 when (connectionState) {
-                    TvConnectionState.CONNECTED -> Color.rgb(48, 155, 92)
+                    TvConnectionState.CONNECTED -> Color.rgb(46, 166, 113)
                     TvConnectionState.DISCONNECTED -> Color.rgb(196, 92, 92)
-                    TvConnectionState.UNCHECKED -> Color.rgb(145, 151, 160)
+                    TvConnectionState.UNCHECKED -> Color.rgb(139, 149, 163)
                 }
             )
         }
@@ -1165,7 +1261,7 @@ class MainActivity : Activity() {
             textSize = 40f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(55, 63, 75))
+            setTextColor(Color.rgb(48, 57, 72))
             setPadding(0, dp(20), 0, dp(2))
         }
         card.addView(remainingText, matchParentWrapContent())
@@ -1242,7 +1338,7 @@ class MainActivity : Activity() {
             text = "Tagihan"
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(110, 118, 130))
+            setTextColor(Color.rgb(108, 118, 133))
         }, matchParentWrapContent())
 
         billCard.addView(TextView(this@MainActivity).apply {
@@ -1250,7 +1346,7 @@ class MainActivity : Activity() {
             textSize = 25f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(70, 78, 92))
+            setTextColor(Color.rgb(37, 47, 61))
         }, matchParentWrapContent())
 
         card.addView(billCard, matchParentWrapContent())
@@ -1848,7 +1944,7 @@ class MainActivity : Activity() {
             remainingText.setTextColor(Color.rgb(135, 92, 92))
             statusText.text = "● Sisa waktu kurang dari 5 menit"
         } else {
-            remainingText.setTextColor(Color.rgb(55, 63, 75))
+            remainingText.setTextColor(Color.rgb(48, 57, 72))
             statusText.text = "● Sesi aktif"
         }
     }
@@ -2251,7 +2347,7 @@ class MainActivity : Activity() {
 
         val qrisStatus = TextView(this).apply {
             textSize = 12f
-            setTextColor(Color.rgb(110, 118, 130))
+            setTextColor(Color.rgb(108, 118, 133))
             gravity = Gravity.CENTER
             setPadding(dp(4), 0, dp(4), dp(8))
         }
@@ -2931,13 +3027,14 @@ class MainActivity : Activity() {
             text = textValue
             textSize = 11f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(80, 88, 100))
-            setBackgroundColor(Color.rgb(238, 240, 244))
+            setTextColor(Color.rgb(48, 57, 72))
+            background = roundedBackground(Color.rgb(239, 243, 247), dp(14))
             isAllCaps = false
             minHeight = dp(40)
             minimumHeight = dp(40)
             setPadding(dp(10), 0, dp(10), 0)
             includeFontPadding = true
+            elevation = dp(1).toFloat()
         }
     }
 
@@ -2946,13 +3043,14 @@ class MainActivity : Activity() {
             text = textValue
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(55, 63, 75))
-            setBackgroundColor(Color.rgb(232, 236, 241))
+            setTextColor(Color.rgb(48, 57, 72))
+            background = roundedBackground(Color.rgb(235, 240, 245), dp(15))
             isAllCaps = false
             minHeight = dp(52)
             minimumHeight = dp(52)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             includeFontPadding = true
+            elevation = dp(1).toFloat()
         }
     }
 
@@ -2962,11 +3060,12 @@ class MainActivity : Activity() {
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(70, 78, 92))
+            background = roundedBackground(Color.rgb(37, 150, 108), dp(15))
             isAllCaps = false
             minHeight = dp(58)
             minimumHeight = dp(58)
             setPadding(dp(12), dp(6), dp(12), dp(6))
+            elevation = dp(2).toFloat()
         }
     }
 
@@ -2975,12 +3074,13 @@ class MainActivity : Activity() {
             text = textValue
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(90, 70, 70))
-            setBackgroundColor(Color.rgb(242, 232, 232))
+            setTextColor(Color.rgb(180, 72, 82))
+            background = roundedBackground(Color.rgb(252, 235, 237), dp(15))
             isAllCaps = false
             minHeight = dp(58)
             minimumHeight = dp(58)
             setPadding(dp(12), dp(6), dp(12), dp(6))
+            elevation = dp(1).toFloat()
         }
     }
 
