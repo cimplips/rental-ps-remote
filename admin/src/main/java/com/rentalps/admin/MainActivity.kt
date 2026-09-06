@@ -138,6 +138,7 @@ class MainActivity : Activity() {
     private var isPaused = false
 
     private lateinit var root: LinearLayout
+    private var lastScrollY = 0
 
     private enum class Screen {
         HOME,
@@ -200,8 +201,7 @@ class MainActivity : Activity() {
                     downY = event.y
                     dragging = false
                     parent?.requestDisallowInterceptTouchEvent(true)
-                    super.onInterceptTouchEvent(event)
-                    return false
+                    return super.onInterceptTouchEvent(event)
                 }
 
                 MotionEvent.ACTION_MOVE -> {
@@ -214,43 +214,24 @@ class MainActivity : Activity() {
                     }
                 }
 
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     dragging = false
                     parent?.requestDisallowInterceptTouchEvent(false)
                 }
             }
-
             return super.onInterceptTouchEvent(event)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.x
-                    downY = event.y
-                    dragging = false
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
                     parent?.requestDisallowInterceptTouchEvent(true)
                 }
-
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.x - downX
-                    val dy = event.y - downY
-                    if (!dragging && kotlin.math.abs(dy) > touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
-                        dragging = true
-                    }
-                    if (dragging) {
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                    }
-                }
-
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    dragging = false
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     parent?.requestDisallowInterceptTouchEvent(false)
+                    dragging = false
                 }
             }
-
             return super.onTouchEvent(event)
         }
     }
@@ -265,6 +246,11 @@ class MainActivity : Activity() {
             clipToPadding = false
             setPadding(0, 0, 0, dp(24))
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                if (screen == Screen.HOME) {
+                    lastScrollY = scrollY
+                }
+            }
         }
 
         root = LinearLayout(this).apply {
@@ -318,6 +304,11 @@ class MainActivity : Activity() {
         }
 
         setContentView(scroll)
+        if (screen == Screen.HOME && lastScrollY > 0) {
+            scroll.post {
+                scroll.scrollTo(0, lastScrollY)
+            }
+        }
     }
 
     private fun loadCimpliPsLogo(): android.graphics.Bitmap? {
