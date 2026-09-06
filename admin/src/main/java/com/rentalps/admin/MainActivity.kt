@@ -325,6 +325,28 @@ class MainActivity : Activity() {
             }
         )
 
+        val stopAllCount = (1..TABLE_COUNT).count {
+            isTableActive(it) || isTablePaused(it)
+        }
+
+        val stopAllButton = createSmallDashboardButton("✕  AKHIRI SEMUA SESI").apply {
+            isEnabled = stopAllCount > 0
+            alpha = if (isEnabled) 1f else 0.55f
+            setOnClickListener {
+                showStopAllConfirmation()
+            }
+        }
+
+        root.addView(
+            stopAllButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(40)
+            ).apply {
+                bottomMargin = dp(8)
+            }
+        )
+
         addSectionTitle(root, "Meja")
 
         val grid = LinearLayout(this).apply {
@@ -696,6 +718,64 @@ class MainActivity : Activity() {
                 pauseAllActiveSessions(activeTables)
             }
             .show()
+    }
+
+    private fun showStopAllConfirmation() {
+        val tables = (1..TABLE_COUNT)
+            .filter { isTableActive(it) || isTablePaused(it) }
+
+        if (tables.isEmpty()) {
+            showToast("Tidak ada sesi yang perlu diakhiri")
+            return
+        }
+
+        val tableNames = tables.joinToString(", ") {
+            String.format(Locale.US, "Meja %02d", it)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Akhiri Semua Sesi?")
+            .setMessage(
+                "Semua sesi yang aktif maupun pause akan diakhiri dan tidak bisa dilanjutkan lagi.\n\n" +
+                    tableNames
+            )
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("AKHIRI SEMUA") { _, _ ->
+                stopAllSessions(tables)
+            }
+            .show()
+    }
+
+    private fun stopAllSessions(tables: List<Int>) {
+        var stoppedCount = 0
+
+        for (tableNumber in tables) {
+            sendCommandToTable(tableNumber, "STOP")
+
+            preferences.edit()
+                .remove(tableKey(tableNumber, "session_end_time"))
+                .remove(tableKey(tableNumber, "session_price"))
+                .remove(tableKey(tableNumber, "paused_remaining"))
+                .putBoolean(tableKey(tableNumber, "active"), false)
+                .putBoolean(tableKey(tableNumber, "paused"), false)
+                .apply()
+
+            if (screen == Screen.TABLE && selectedTable == tableNumber) {
+                sessionPrice = 0L
+                pausedRemainingMillis = 0L
+                isPaused = false
+            }
+
+            stoppedCount++
+        }
+
+        showToast("$stoppedCount sesi berhasil diakhiri")
+
+        if (screen == Screen.HOME) {
+            buildHomeScreen()
+        } else if (screen == Screen.TABLE) {
+            buildTableScreen()
+        }
     }
 
     private fun showResumeAllConfirmation() {
