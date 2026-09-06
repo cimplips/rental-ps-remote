@@ -1364,12 +1364,18 @@ class MainActivity : Activity() {
                     }
                 }
 
+                // Jangan langsung menganggap TV benar-benar terhubung hanya karena
+                // socket berhasil menerima perintah. Konfirmasi koneksi dilakukan
+                // melalui STATUS setelah command selesai dikirim. Ini mencegah titik
+                // hijau muncul ketika TV menerima koneksi tetapi server belum siap
+                // memberikan status yang valid.
                 runOnUiThread {
-                    tvConnectionStatus[tableNumber] = TvConnectionState.CONNECTED
-                    when (screen) {
-                        Screen.HOME -> buildHomeScreen()
-                        Screen.TABLE -> buildTableScreen()
-                        else -> Unit
+                    if (getStatusRequestGeneration(tableNumber) == commandGeneration) {
+                        when (screen) {
+                            Screen.HOME -> buildHomeScreen()
+                            Screen.TABLE -> buildTableScreen()
+                            else -> Unit
+                        }
                     }
                 }
 
