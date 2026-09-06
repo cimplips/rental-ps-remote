@@ -178,7 +178,12 @@ class MainActivity : Activity() {
     private fun buildBase(titleText: String, subtitleText: String? = null) {
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.rgb(245, 247, 250))
-            isFillViewport = true
+            isFillViewport = false
+            isSmoothScrollingEnabled = true
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(24))
         }
 
         root = LinearLayout(this).apply {
@@ -282,8 +287,6 @@ class MainActivity : Activity() {
             }
         )
 
-        addSectionTitle(root, "Meja")
-
         val grid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -372,7 +375,8 @@ class MainActivity : Activity() {
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(9), dp(12), dp(10))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), dp(8), dp(12), dp(10))
             setBackgroundColor(
                 when {
                     active && !paused -> Color.rgb(237, 248, 241)
@@ -380,6 +384,8 @@ class MainActivity : Activity() {
                     else -> Color.WHITE
                 }
             )
+            isClickable = true
+            isFocusable = true
             setOnClickListener {
                 selectedTable = tableNumber
                 screen = Screen.TABLE
@@ -388,7 +394,7 @@ class MainActivity : Activity() {
             }
         }
 
-        // Koneksi TV selalu berada di pojok kanan atas kartu.
+        // Indikator koneksi tetap kecil di kanan atas kartu.
         val connectionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
@@ -396,7 +402,7 @@ class MainActivity : Activity() {
 
         connectionRow.addView(TextView(this).apply {
             text = "●"
-            textSize = 11f
+            textSize = 10f
             setTextColor(
                 when (connectionState) {
                     TvConnectionState.CONNECTED -> Color.rgb(55, 170, 95)
@@ -404,7 +410,7 @@ class MainActivity : Activity() {
                     TvConnectionState.UNCHECKED -> Color.rgb(185, 190, 198)
                 }
             )
-        }, LinearLayout.LayoutParams(dp(14), dp(20)))
+        }, LinearLayout.LayoutParams(dp(12), dp(18)))
 
         connectionRow.addView(TextView(this).apply {
             text = when (connectionState) {
@@ -412,27 +418,33 @@ class MainActivity : Activity() {
                 TvConnectionState.DISCONNECTED -> "Tidak terhubung"
                 TvConnectionState.UNCHECKED -> "Belum dicek"
             }
-            textSize = 9f
+            textSize = 8.5f
             setTextColor(Color.rgb(120, 126, 137))
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(20)))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(18)))
 
-        card.addView(connectionRow, matchParentWrapContent())
+        card.addView(
+            connectionRow,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20))
+        )
 
+        // Nomor meja dibuat besar dan rata tengah.
         card.addView(TextView(this).apply {
-            text = "MEJA ${String.format(Locale.US, "%02d", tableNumber)}"
-            textSize = 15f
+            text = String.format(Locale.US, "%02d", tableNumber)
+            textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
             setTextColor(Color.rgb(40, 47, 58))
-            setPadding(0, dp(4), 0, 0)
-        }, matchParentWrapContent())
+            setPadding(0, dp(1), 0, 0)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
 
+        // Jenis PS tetap mengikuti pengaturan meja.
         card.addView(TextView(this).apply {
             text = psType
-            textSize = 12f
+            textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
             setTextColor(Color.rgb(90, 97, 108))
-            setPadding(0, dp(2), 0, 0)
-        }, matchParentWrapContent())
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(25)))
 
         val timerText = TextView(this).apply {
             text = when {
@@ -440,8 +452,9 @@ class MainActivity : Activity() {
                 paused -> "PAUSE  •  ${formatTime(remaining)}"
                 else -> "--:--:--"
             }
-            textSize = if (active || paused) 24f else 17f
+            textSize = if (active || paused) 22f else 16f
             typeface = if (active || paused) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            gravity = Gravity.CENTER
             setTextColor(
                 when {
                     paused -> Color.rgb(145, 112, 60)
@@ -449,10 +462,12 @@ class MainActivity : Activity() {
                     else -> Color.rgb(150, 155, 164)
                 }
             )
-            gravity = Gravity.START
-            setPadding(0, dp(5), 0, dp(5))
+            setPadding(0, dp(2), 0, dp(4))
         }
-        card.addView(timerText, matchParentWrapContent())
+        card.addView(
+            timerText,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38))
+        )
 
         if (active && !paused) {
             homeTimerViews[tableNumber] = timerText
@@ -468,13 +483,14 @@ class MainActivity : Activity() {
             }
             card.addView(
                 startButton,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)).apply {
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)).apply {
                     topMargin = dp(2)
                 }
             )
         } else {
             val actionRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
             }
 
             val addButton = createSmallDashboardButton("+ JAM").apply {
@@ -503,11 +519,14 @@ class MainActivity : Activity() {
                 }
             }
 
-            actionRow.addView(addButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(3) })
-            actionRow.addView(pauseButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
-            actionRow.addView(finishButton, LinearLayout.LayoutParams(0, dp(38), 1f).apply { leftMargin = dp(3) })
+            actionRow.addView(addButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { rightMargin = dp(3) })
+            actionRow.addView(pauseButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
+            actionRow.addView(finishButton, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(3) })
 
-            card.addView(actionRow, matchParentWrapContent())
+            card.addView(
+                actionRow,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38))
+            )
         }
 
         return card
