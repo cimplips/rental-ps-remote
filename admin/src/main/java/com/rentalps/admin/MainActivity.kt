@@ -977,6 +977,11 @@ class MainActivity : Activity() {
             val ps = PS_TYPES[psSpinner.selectedItemPosition]
             val ip = ipInput.text.toString().trim()
 
+            if (ip.isBlank()) {
+                showToast("IP Android TV belum diisi")
+                return@setOnClickListener
+            }
+
             preferences.edit()
                 .putString(tableKey(table, "ps_type"), ps)
                 .putString(tableKey(table, "tv_ip"), ip)
@@ -985,6 +990,55 @@ class MainActivity : Activity() {
             showToast(String.format(Locale.US, "Meja %02d tersimpan", table))
         }
         root.addView(save, matchParentButton())
+
+        val testConnection = createSoftButton("TEST KONEKSI TV")
+        testConnection.setOnClickListener {
+            val table = tableSpinner.selectedItemPosition + 1
+            val ip = ipInput.text.toString().trim()
+
+            if (ip.isBlank()) {
+                showToast("IP Android TV belum diisi")
+                return@setOnClickListener
+            }
+
+            testConnection.isEnabled = false
+            testConnection.text = "MENGECEK..."
+
+            executor.execute {
+                var success = false
+                try {
+                    Socket(ip, 8787).use { socket ->
+                        socket.soTimeout = 2500
+                        PrintWriter(socket.getOutputStream(), true).use { writer ->
+                            writer.println("STATUS")
+                            writer.flush()
+
+                            val response =
+                                socket.getInputStream()
+                                    .bufferedReader()
+                                    .readLine()
+                                    ?.trim()
+                                    .orEmpty()
+
+                            success = response.startsWith("STATUS|", ignoreCase = true)
+                        }
+                    }
+                } catch (_: Exception) {
+                    success = false
+                }
+
+                runOnUiThread {
+                    testConnection.isEnabled = true
+                    testConnection.text = "TEST KONEKSI TV"
+                    if (success) {
+                        showToast(String.format(Locale.US, "TV Meja %02d terhubung", table))
+                    } else {
+                        showToast(String.format(Locale.US, "TV Meja %02d tidak dapat dihubungi", table))
+                    }
+                }
+            }
+        }
+        root.addView(testConnection, matchParentButton())
     }
 
     private fun buildTvSettingsScreen() {
