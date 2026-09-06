@@ -38,18 +38,31 @@ class MainActivity : Activity() {
     private val statusPollRunnable =
         object : Runnable {
             override fun run() {
-                if (screen == Screen.TABLE) {
-                    syncTableStatus(
-                        selectedTable,
-                        rebuildWhenChanged = true
-                    )
-                    statusHandler.postDelayed(
-                        this,
-                        3_000L
-                    )
+                when (screen) {
+                    Screen.TABLE -> {
+                        syncTableStatus(
+                            selectedTable,
+                            rebuildWhenChanged = true
+                        )
+                        statusHandler.postDelayed(this, 3_000L)
+                    }
+
+                    Screen.HOME -> {
+                        for (tableNumber in 1..TABLE_COUNT) {
+                            syncTableStatus(
+                                tableNumber,
+                                rebuildWhenChanged = true
+                            )
+                        }
+                        statusHandler.postDelayed(this, 5_000L)
+                    }
+
+                    else -> Unit
                 }
             }
         }
+
+    private var homeRefreshScheduled = false
     private var selectedTable = 1
     private var screen = Screen.HOME
 
@@ -85,10 +98,6 @@ class MainActivity : Activity() {
             syncTableStatus(selectedTable, rebuildWhenChanged = true)
         } else {
             buildHomeScreen()
-
-            for (tableNumber in 1..TABLE_COUNT) {
-                syncTableStatus(tableNumber)
-            }
         }
     }
 
@@ -241,6 +250,8 @@ class MainActivity : Activity() {
             buildTvSettingsScreen()
         }
         root.addView(tvSettingsButton, matchParentButton())
+
+        startStatusPolling()
     }
 
     private fun createSummaryCard(
@@ -952,10 +963,22 @@ class MainActivity : Activity() {
         root.addView(save, matchParentButton())
     }
 
+    private fun scheduleHomeRefresh() {
+        if (homeRefreshScheduled) return
+        homeRefreshScheduled = true
+
+        statusHandler.postDelayed({
+            homeRefreshScheduled = false
+            if (screen == Screen.HOME) {
+                buildHomeScreen()
+            }
+        }, 150L)
+    }
+
     private fun startStatusPolling() {
         statusHandler.removeCallbacks(statusPollRunnable)
 
-        if (screen == Screen.TABLE) {
+        if (screen == Screen.TABLE || screen == Screen.HOME) {
             statusHandler.post(statusPollRunnable)
         }
     }
@@ -1123,14 +1146,15 @@ class MainActivity : Activity() {
             else -> return
         }
 
-        if (
-            rebuildWhenChanged &&
-            changed &&
-            screen == Screen.TABLE &&
-            selectedTable == tableNumber
-        ) {
-            restoreTableSession(tableNumber)
-            buildTableScreen()
+        if (rebuildWhenChanged && changed) {
+            when {
+                screen == Screen.TABLE && selectedTable == tableNumber -> {
+                    restoreTableSession(tableNumber)
+                    buildTableScreen()
+                }
+
+                screen == Screen.HOME -> scheduleHomeRefresh()
+            }
         }
     }
 
