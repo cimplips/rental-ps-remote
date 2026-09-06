@@ -516,14 +516,48 @@ class MainActivity : Activity() {
 
     private fun addOneHour() {
         val psType = getTablePsType(selectedTable)
+        val addedMillis = 3_600_000L
+        val addedPrice = getPsPrice(psType)
+
+        if (isPaused || preferences.getBoolean(tableKey(selectedTable, "paused"), false)) {
+            val currentPaused = maxOf(
+                pausedRemainingMillis,
+                preferences.getLong(
+                    tableKey(selectedTable, "paused_remaining"),
+                    0L
+                )
+            )
+
+            if (currentPaused <= 0L) return
+
+            sessionPrice += addedPrice
+            pausedRemainingMillis = currentPaused + addedMillis
+            isPaused = true
+
+            preferences.edit()
+                .putLong(tableKey(selectedTable, "session_price"), sessionPrice)
+                .putBoolean(tableKey(selectedTable, "active"), false)
+                .putBoolean(tableKey(selectedTable, "paused"), true)
+                .putLong(
+                    tableKey(selectedTable, "paused_remaining"),
+                    pausedRemainingMillis
+                )
+                .putLong(tableKey(selectedTable, "session_end_time"), 0L)
+                .apply()
+
+            sendCommandToTable(selectedTable, "ADD:3600")
+            buildTableScreen()
+            return
+        }
+
         val currentEnd = preferences.getLong(
             tableKey(selectedTable, "session_end_time"),
             System.currentTimeMillis()
         )
 
         val baseEnd = maxOf(currentEnd, System.currentTimeMillis())
-        val newEnd = baseEnd + 3_600_000L
-        sessionPrice += getPsPrice(psType)
+        val newEnd = baseEnd + addedMillis
+        sessionPrice += addedPrice
 
         preferences.edit()
             .putLong(tableKey(selectedTable, "session_end_time"), newEnd)
