@@ -23,9 +23,7 @@ class TvServer(
         Executors.newCachedThreadPool()
 
     private val mainHandler =
-        Handler(
-            Looper.getMainLooper()
-        )
+        Handler(Looper.getMainLooper())
 
     @Volatile
     private var running = false
@@ -52,9 +50,7 @@ class TvServer(
 
                     if (socket != null) {
 
-                        handleClient(
-                            socket
-                        )
+                        handleClient(socket)
                     }
                 }
 
@@ -87,36 +83,25 @@ class TvServer(
                             true
                         )
 
-                    val command =
+                    val rawCommand =
                         reader
                             .readLine()
                             ?.trim()
-                            ?.uppercase()
 
-                    if (
-                        command.isNullOrEmpty()
-                    ) {
+                    if (rawCommand.isNullOrEmpty()) {
                         return@use
                     }
 
-                    /*
-                     * STATUS adalah request khusus.
-                     *
-                     * HP mengirim:
-                     *
-                     * STATUS
-                     *
-                     * TV membalas:
-                     *
-                     * STATUS|ACTIVE|<waktu_berakhir>
-                     *
-                     * atau:
-                     *
-                     * STATUS|IDLE|0
-                     */
-                    if (
-                        command == "STATUS"
-                    ) {
+                    // Hanya nama perintah yang dibuat uppercase.
+                    // Payload setelah "|" tetap mempertahankan huruf
+                    // besar/kecil yang dikirim dari HP.
+                    val commandName =
+                        rawCommand
+                            .substringBefore("|")
+                            .trim()
+                            .uppercase()
+
+                    if (commandName == "STATUS") {
 
                         val response =
                             try {
@@ -128,28 +113,19 @@ class TvServer(
                                 "STATUS|IDLE|0"
                             }
 
-                        writer.println(
-                            response
-                        )
-
+                        writer.println(response)
                         writer.flush()
 
                         return@use
                     }
 
-                    /*
-                     * Perintah biasa tetap memakai
-                     * mekanisme yang sudah berjalan.
-                     */
                     mainHandler.post {
 
-                        onCommand(
-                            command
-                        )
+                        onCommand(rawCommand)
                     }
 
                 } catch (_: Exception) {
-                    // Client terputus.
+                    // Client terputus atau koneksi gagal.
                 }
             }
         }
