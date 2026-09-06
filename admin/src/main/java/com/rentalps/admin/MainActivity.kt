@@ -1194,22 +1194,50 @@ class MainActivity : Activity() {
 
     private fun sendCommandToTable(tableNumber: Int, command: String) {
         val host = getTableIp(tableNumber)
+        val tableLabel = String.format(Locale.US, "%02d", tableNumber)
+
         if (host.isBlank()) {
-            showToast("IP TV Meja ${String.format(Locale.US, "%02d", tableNumber)} belum diatur")
+            tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
+            runOnUiThread {
+                when (screen) {
+                    Screen.HOME -> buildHomeScreen()
+                    Screen.TABLE -> buildTableScreen()
+                }
+            }
+            showToast("IP TV Meja $tableLabel belum diatur")
             return
         }
 
         executor.execute {
             try {
                 Socket(host, 8787).use { socket ->
+                    socket.soTimeout = 2500
                     PrintWriter(socket.getOutputStream(), true).use { writer ->
                         writer.println(command)
                         writer.flush()
                     }
                 }
+
+                runOnUiThread {
+                    tvConnectionStatus[tableNumber] = TvConnectionState.CONNECTED
+                    when (screen) {
+                        Screen.HOME -> buildHomeScreen()
+                        Screen.TABLE -> buildTableScreen()
+                    }
+                }
+
+                // Setelah perintah dikirim, baca kembali STATUS TV agar
+                // tampilan HP segera mengikuti kondisi TV yang sebenarnya.
+                Thread.sleep(250L)
+                syncTableStatus(tableNumber, rebuildWhenChanged = true)
             } catch (_: Exception) {
                 runOnUiThread {
-                    showToast("Gagal terhubung ke TV meja ${String.format(Locale.US, "%02d", tableNumber)}")
+                    tvConnectionStatus[tableNumber] = TvConnectionState.DISCONNECTED
+                    when (screen) {
+                        Screen.HOME -> buildHomeScreen()
+                        Screen.TABLE -> buildTableScreen()
+                    }
+                    showToast("Gagal terhubung ke TV meja $tableLabel")
                 }
             }
         }
